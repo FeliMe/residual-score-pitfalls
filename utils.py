@@ -225,6 +225,16 @@ def load_nii(path: str, size: int = None, primary_axis: int = 0,
     return volume, affine
 
 
+def load_nii_nn(path: str, size: int=None, slice_range: Tuple[int, int]=None,
+                dtype: str="float32"):
+    vol = load_nii(path, size, primary_axis=2, dtype=dtype)[0]
+
+    if slice_range is not None:
+        vol = vol[slice_range[0]:slice_range[1]]
+
+    return vol
+
+
 def average_precision(target: np.ndarray, pred: np.ndarray) -> float:
     return average_precision_score(target.reshape(-1), pred.reshape(-1))
 

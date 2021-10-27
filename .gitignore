@@ -1,4 +1,4 @@
- Hidden files
+# Hidden files
 .DS_Store
 
 # Byte-compiled / optimized / DLL files
@@ -16,8 +16,8 @@ __pycache__/
 .vscode/
 
 # Tester file
-/uas_mood/tester.py
+/tester.py
 
 # w&b-created directories
-/uas_mood/artifacts/
-/uas_mood/wandb/
+/artifacts/
+/wandb/
