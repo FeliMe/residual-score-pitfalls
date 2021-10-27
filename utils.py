@@ -1,8 +1,14 @@
 import os
+from typing import Tuple, List
 
+from matplotlib import cm
+import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
-import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter
+from skimage.draw import disk
+from sklearn.metrics import average_precision_score
 
 DATAROOT = os.environ.get("DATAROOT")
 if DATAROOT is None:
@@ -119,6 +125,70 @@ def volume_viewer(volume, initial_position=None, slices_first=True):
     plt.show()
 
 
+def show(imgs: List[np.ndarray], seg: List[np.ndarray]=None,
+         path: str=None) -> None:
+
+    if not isinstance(imgs, list):
+        imgs = [imgs]
+    n = len(imgs)
+    fig = plt.figure(figsize=(4 * n, 4))
+
+    for i in range(n):
+        fig.add_subplot(1, n, i + 1)
+        plt.imshow(imgs[i], cmap="gray", vmin=0., vmax=1.)
+
+        if seg is not None:
+            plt.imshow(seg[i], cmap="jet", alpha=0.3)
+
+    if path is None:
+        plt.show()
+    else:
+        plt.axis("off")
+        plt.savefig(path, bbox_inches='tight', pad_inches=0)
+
+
+def plot_landscape(X, Y, Z, ax_labels: Tuple[str, str, str]=None,
+                   path: str=None):
+    _, ax = plt.subplots(subplot_kw={"projection": "3d"})
+    X_, Y_ = np.meshgrid(X, Y)
+
+    # Plot the surface.
+    surf = ax.plot_surface(X_, Y_, Z, cmap=cm.coolwarm,
+                           linewidth=0, antialiased=True)
+
+    if ax_labels is not None:
+        ax.set_xlabel(ax_labels[0])
+        ax.set_ylabel(ax_labels[1])
+        ax.set_zlabel(ax_labels[2])
+
+    # Limit z-axis
+    ax.set_zlim(0., 1.)
+
+    # Add a color bar which maps values to colors.
+    # fig.colorbar(surf, shrink=0.5, aspect=5)
+
+    if path is None:
+        plt.show()
+    else:
+        plt.savefig(path)
+
+
+def plot_curve(x: np.ndarray, y: np.ndarray, ax_titles: Tuple[str, str] = None,
+               path: str = None) -> None:
+    plt.plot(x, y)
+
+    plt.ylim(0., 1.)
+
+    if ax_titles is not None:
+        plt.xlabel(ax_titles[0])
+        plt.ylabel(ax_titles[1])
+
+    if path is None:
+        plt.show()
+    else:
+        plt.savefig(path)
+
+
 def load_nii(path: str, size: int = None, primary_axis: int = 0,
              dtype: str = "float32"):
     """Load a neuroimaging file with nibabel, [w, h, slices]
@@ -153,3 +223,157 @@ def load_nii(path: str, size: int = None, primary_axis: int = 0,
     volume = np.moveaxis(volume, primary_axis, 0)
 
     return volume, affine
+
+
+def average_precision(target: np.ndarray, pred: np.ndarray) -> float:
+    return average_precision_score(target.reshape(-1), pred.reshape(-1))
+
+
+def blur_img(img: np.ndarray, sigma: float) -> np.ndarray:
+    return gaussian_filter(img, sigma=sigma)
+
+
+def disk_anomaly(img: np.ndarray, position: Tuple[int, int], radius: int,
+                   intensity: float) -> np.ndarray:
+    """Draw a disk on a grayscale image.
+
+    Args:
+        img (np.ndarray): Grayscale image
+        position (Tuple[int, int]): Position of disk
+        radius (int): Radius of disk
+        intensity (float): Intensity of pixels inside the disk
+    Returns:
+        disk_img (np.ndarray): img with ball drawn on it
+        label (np.ndarray): target segmentation mask
+    """
+    assert img.ndim == 2, f"Invalid shape {img.shape}. Use a grayscale image"
+    # Create disk
+    rr, cc = disk(position, radius)
+    # Draw disk on image
+    disk_img = img.copy()
+    disk_img[rr, cc] = intensity
+    # Create label
+    label = np.zeros(img.shape, dtype=np.uint8)
+    label[rr, cc] = 1
+
+    return disk_img, label
+
+
+def source_deformation_anomaly(img: np.ndarray, position: Tuple[int, int],
+                               radius: int):
+    """Pixels are shifted away from the center of the sphere.
+    Args:
+        img (np.ndarray): Image to be augmented, shape [h, w]
+        position (Tuple[int int]): Center pixel of the mask
+        radius (int): Radius
+    Returns:
+        img_deformed (np.ndarray): img with source deformation
+        label (np.ndarray): target segmentation mask
+    """
+    # Create label mask
+    rr, cc = disk(position, radius)
+    label = np.zeros(img.shape, dtype=np.uint8)
+    label[rr, cc] = 1
+
+    # Center voxel of deformation
+    C = np.array(position)
+
+    # Create copy of image for reference
+    img_deformed = img.copy()
+    copy = img.copy()
+
+    # Iterate over indices of all voxels in mask
+    inds = np.where(label > 0)
+    for x, y in zip(*inds[-2:]):
+        # Voxel at current location
+        I = np.array([x, y])
+
+        # Source pixel shift
+        s = np.square(np.linalg.norm(I - C, ord=2) / radius)
+        V = np.round(C + s * (I - C)).astype(np.int)
+        x_, y_ = V
+
+        # Assure that z_, y_ and x_ are valid indices
+        x_ = max(min(x_, img.shape[-1] - 1), 0)
+        y_ = max(min(y_, img.shape[-2] - 1), 0)
+
+        if img_deformed[..., x, y] > 0:
+            img_deformed[..., x, y] = copy[..., x_, y_]
+
+    return img_deformed, label
+
+
+def sink_deformation_anomaly(img: np.ndarray, position: Tuple[int, int],
+                             radius: int):
+    """Pixels are shifted toward from the center of the sphere.
+    Args:
+        img (np.ndarray): Image to be augmented, shape [h, w]
+        position (Tuple[int int]): Center pixel of the mask
+        radius (int): Radius
+    Returns:
+        img_deformed (np.ndarray): img with sink deformation
+        label (np.ndarray): target segmentation mask
+    """
+    # Create label mask
+    rr, cc = disk(position, radius)
+    label = np.zeros(img.shape, dtype=np.uint8)
+    label[rr, cc] = 1
+
+    # Center voxel of deformation
+    C = np.array(position)
+
+    # Create copy of image for reference
+    img_deformed = img.copy()
+    copy = img.copy()
+
+    # Iterate over indices of all voxels in mask
+    inds = np.where(label > 0)
+    for x, y in zip(*inds[-2:]):
+        # Voxel at current location
+        I = np.array([x, y])
+
+        # Sink pixel shift
+        s = np.square(np.linalg.norm(I - C, ord=2) / radius)
+        V = np.round(I + (1 - s) * (I - C)).astype(np.int)
+        x_, y_ = V
+
+        # Assure that z_, y_ and x_ are valid indices
+        x_ = max(min(x_, img.shape[-2] - 1), 0)
+        y_ = max(min(y_, img.shape[-1] - 1), 0)
+
+        if img_deformed[..., x, y] > 0:
+            img_deformed[..., x, y] = copy[..., x_, y_]
+
+    return img_deformed, label
+
+
+def pixel_shuffle_anomaly(img: np.ndarray, position: Tuple[int, int],
+                          radius: int):
+    """Pixels in the label mask are randomly shuffled
+    Args:
+        img (np.ndarray): Image to be augmented, shape [h, w]
+        position (Tuple[int int]): Center pixel of the mask
+        radius (int): Radius
+    Returns:
+        img_deformed (np.ndarray): img with sink deformation
+        label (np.ndarray): target segmentation mask
+    """
+    # Create label mask
+    rr, cc = disk(position, radius)
+    label = np.zeros(img.shape, dtype=np.uint8)
+    label[rr, cc] = 1
+
+    # Create copy of image for reference
+    img_deformed = img.copy()
+
+    # Create permutation of indices in label mask
+    inds = np.where(label > 0)
+    perm = np.random.permutation(len(inds[0]))
+    inds_shuffled = [axis[perm] for axis in inds]
+
+    # Apply permutation
+    for x, y, x_, y_ in zip(*inds, *inds_shuffled):
+        img_deformed[x, y] = img[x_, y_]
+
+    return img_deformed, label
+

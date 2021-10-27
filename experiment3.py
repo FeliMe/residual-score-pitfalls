@@ -1,20 +1,23 @@
 """
-Experiment 2:
-  - Same as experiment 1, but first dimension is not intensity, but anomaly volume
+Experiment 3:
+  - Get an image (mid-slice of a brain)
+  - Create anomaly source deformation (or just mix the pixels in a patch)
+  - Add increasing blur to the 'reconstructed' image
+  - Subtract the reconstructed image from the anomaly (simulates imperfect reconstruction of the Autoencoder)
 """
 from typing import Tuple
 
 import numpy as np
-from tqdm import tqdm
-from typing import Tuple
 
 from utils import (
     average_precision,
     blur_img,
-    disk_anomaly,
     load_nii,
-    plot_landscape,
+    plot_curve,
     show,
+    sink_deformation_anomaly,
+    source_deformation_anomaly,
+    pixel_shuffle_anomaly,
 )
 
 
@@ -40,29 +43,24 @@ def summary(img: np.ndarray, blur: float, intensity: float,
 if __name__ == "__main__":
     # Load image
     img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
-    # img_path = os.path.join(MOODROOT, "brain/test_raw/00480.nii.gz")
     volume, _ = load_nii(img_path, primary_axis=2)
     img = volume[volume.shape[0] // 2]
 
     # Select ball position and radius
-    position = (128, 180)
-    intensity = 0.6
+    position = (128, 200)
+    radius = 20
 
     results = []  # Gather ap results here
-    radii = np.linspace(1, 51, num=100).astype(np.int)  # Second dimension
-    blurrings = np.linspace(0., 5., num=100)  # Second dimension
+    blurrings = np.linspace(0., 5., num=100)  # First dimension
 
     # Perform experiment
-    for radius in tqdm(radii):
-        result_row = []
-        for blur in blurrings:
-            img_blur = blur_img(img, blur)
-            img_anomal, label = disk_anomaly(img, position, radius, intensity)
-            pred = np.abs(img_blur - img_anomal)
-            ap = average_precision(label, pred)
-            result_row.append(ap)
-        results.append(result_row)
+    for blur in blurrings:
+        img_blur = blur_img(img, blur)
+        img_anomal, label = pixel_shuffle_anomaly(img, position, radius)
+        pred = np.abs(img_blur - img_anomal)
+        ap = average_precision(label, pred)
+        results.append(ap)
 
     results = np.array(results)
-    plot_landscape(blurrings, radii, results, ("blur", "radius", "ap"))
+    plot_curve(blurrings, results, ("blur", "ap"))
     import IPython ; IPython.embed() ; exit(1)
