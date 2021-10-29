@@ -1,5 +1,6 @@
+from datetime import datetime
 import os
-from typing import Tuple, List
+from typing import List, Tuple
 
 from matplotlib import cm
 import matplotlib.pyplot as plt
@@ -8,7 +9,9 @@ import nibabel as nib
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from skimage.draw import disk
+from skimage.transform import resize
 from sklearn.metrics import average_precision_score
+
 
 DATAROOT = os.environ.get("DATAROOT")
 if DATAROOT is None:
@@ -387,3 +390,10 @@ def pixel_shuffle_anomaly(img: np.ndarray, position: Tuple[int, int],
 
     return img_deformed, label
 
+
+def get_training_timings(start_time, current_step, num_steps):
+    time_elapsed = datetime.now() - datetime.fromtimestamp(start_time)
+    # self.current_epoch starts at 0
+    time_per_step = time_elapsed / current_step
+    time_left = (num_steps - current_step) * time_per_step
+    return time_elapsed, time_per_step, time_left

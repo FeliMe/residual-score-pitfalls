@@ -39,7 +39,7 @@ class TrainDataset(Dataset):
         if load_to_ram:
             t_start = time()
             samples = load_files_to_ram(files, self.load_fn)
-            self.samples = [s for vol in samples for s in vol]
+            self.samples = [s[None] for vol in samples for s in vol]
             self.print(f"Loaded data in {time() - t_start:.2f}s")
         else:
             self.samples = files
