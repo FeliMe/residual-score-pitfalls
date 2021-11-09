@@ -7,7 +7,6 @@ Experiment 1:
   - In a second dimension, add gaussian blur to the image (simulates imperfect reconstruction of the Autoencoder)
 """
 from typing import Tuple
-from typing import Tuple
 
 import numpy as np
 from tqdm import tqdm
@@ -18,6 +17,7 @@ from utils import (
     disk_anomaly,
     load_nii,
     plot_landscape,
+    plot_heatmap,
     show,
 )
 
@@ -68,5 +68,7 @@ if __name__ == "__main__":
         results.append(result_row)
 
     results = np.array(results)
+    np.save("./results/experiment1_numbers.npy", results)
     plot_landscape(blurrings, intensities, results, ("blur", "intensity", "ap"))
+    plot_heatmap(blurrings, intensities, results, ("blur", "intensity"))
     import IPython ; IPython.embed() ; exit(1)

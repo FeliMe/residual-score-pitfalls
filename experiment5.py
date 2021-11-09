@@ -1,6 +1,6 @@
 """
-Experiment 4:
-- Repeat experiment 1, but with an Autoencoder trained on the MOOD training set
+Experiment 5:
+- Repeat experiment 2 (vary anomaly size), but with an Autoencoder trained on the MOOD training set
 - Subexperiment 1: Use reconstruction of normal image, vary intensity
   (Maybe use multiple checkpoints with different validation losses)
 - Subexperiment 2: Use reconstruction of anomal image, again vary intensity
@@ -38,18 +38,18 @@ if __name__ == '__main__':
     volume, _ = load_nii(img_path, primary_axis=2)
     img = volume[volume.shape[0] // 2]
 
-    # Select ball position and radius
+    # Select ball position and intensity
     position = (128, 200)
-    radius = 20
+    intensity = 0.6
 
-    intensities = np.linspace(0., 1., num=100)  # First dimension
+    radii = np.linspace(1, 51, num=100).astype(np.int)
 
     # Load model
     model = load_autoencoder(args.model_ckpt)
 
     # Perform experiment
     results = []  # Gather ap results here
-    for intensity in intensities:
+    for radius in radii:
         img_anomal, label = disk_anomaly(img, position, radius, intensity)
         if args.experiment == 1:
             # Experiment 4.1, use reconstruction of normal image
@@ -64,6 +64,6 @@ if __name__ == '__main__':
         results.append(ap)
 
     results = np.array(results)
-    plot_curve(intensities, results, ("intensity", "ap"))
+    plot_curve(radii, results, ("radius", "ap"))
     import IPython ; IPython.embed() ; exit(1)
 

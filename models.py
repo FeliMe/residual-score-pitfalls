@@ -1,9 +1,13 @@
-from typing import List
+from argparse import Namespace
 from math import log
+import os
+from typing import List
 
 import torch
 from torch import Tensor
 import torch.nn as nn
+
+import wandb
 
 
 """"""""""""""""""""""""""""""""" Utilities """""""""""""""""""""""""""""""""
@@ -136,6 +140,32 @@ class AutoEncoder(nn.Module):
         y = self.decoder(y)
         return y
 
+
+def load_autoencoder(model_ckpt: str) -> AutoEncoder:
+    """Load a model of the AutoEncoder class from a path of the format
+    <run_name>/<last or best>.pt"""
+
+    # Restore checkpoint
+    run_name, model_name = os.path.split(model_ckpt)
+    run_path = f"felix-meissen/reconstruction-score-bias/{run_name}"
+    loaded = wandb.restore(model_name, run_path=run_path)
+    ckpt = torch.load(loaded.name)
+
+    # Extract config
+    config = Namespace(**ckpt['config'])
+
+    # Init model
+    model = AutoEncoder(
+        inp_size=config.inp_size,
+        intermediate_resolution=config.intermediate_resolution,
+        latent_dim=config.latent_dim,
+        width=config.model_width
+    )
+
+    # Load weights
+    model.load_state_dict(ckpt["model_state_dict"])
+
+    return model
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"

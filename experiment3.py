@@ -62,5 +62,6 @@ if __name__ == "__main__":
         results.append(ap)
 
     results = np.array(results)
+    # np.save("./results/experiment3_numbers.npy", results)
     plot_curve(blurrings, results, ("blur", "ap"))
     import IPython ; IPython.embed() ; exit(1)

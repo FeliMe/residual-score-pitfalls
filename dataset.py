@@ -1,24 +1,11 @@
 from functools import partial
 from glob import glob
-from multiprocessing import Pool
 from time import time
 from typing import Tuple
 
 from torch.utils.data import Dataset
 
-from utils import load_nii_nn, volume_viewer
-
-
-def load_files_to_ram(files, load_fn, num_processes=48):
-    pool = Pool(num_processes)
-    results = []
-
-    results = pool.map(load_fn, files)
-
-    pool.close()
-    pool.join()
-
-    return results
+from utils import load_nii_nn, load_files_to_ram, volume_viewer
 
 
 class TrainDataset(Dataset):

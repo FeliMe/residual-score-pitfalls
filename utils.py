@@ -5,6 +5,7 @@ from typing import List, Tuple
 from matplotlib import cm
 import matplotlib.pyplot as plt
 import matplotlib.pyplot as plt
+from multiprocessing import Pool
 import nibabel as nib
 import numpy as np
 from scipy.ndimage import gaussian_filter
@@ -17,6 +18,18 @@ DATAROOT = os.environ.get("DATAROOT")
 if DATAROOT is None:
     raise EnvironmentError("Set the $DATAROOT environment variable to your data directory")
 MOODROOT = os.path.join(DATAROOT, "MOOD")
+
+
+def load_files_to_ram(files, load_fn, num_processes=48):
+    pool = Pool(num_processes)
+    results = []
+
+    results = pool.map(load_fn, files)
+
+    pool.close()
+    pool.join()
+
+    return results
 
 
 def volume_viewer(volume, initial_position=None, slices_first=True):
@@ -134,11 +147,14 @@ def show(imgs: List[np.ndarray], seg: List[np.ndarray]=None,
     if not isinstance(imgs, list):
         imgs = [imgs]
     n = len(imgs)
-    fig = plt.figure(figsize=(4 * n, 4))
+    fig = plt.figure()
 
     for i in range(n):
         fig.add_subplot(1, n, i + 1)
         plt.imshow(imgs[i], cmap="gray", vmin=0., vmax=1.)
+
+        if path is not None:
+            plt.axis('off')
 
         if seg is not None:
             plt.imshow(seg[i], cmap="jet", alpha=0.3)
@@ -146,12 +162,11 @@ def show(imgs: List[np.ndarray], seg: List[np.ndarray]=None,
     if path is None:
         plt.show()
     else:
-        plt.axis("off")
         plt.savefig(path, bbox_inches='tight', pad_inches=0)
 
 
 def plot_landscape(X, Y, Z, ax_labels: Tuple[str, str, str]=None,
-                   path: str=None):
+                   path: str=None) -> None:
     _, ax = plt.subplots(subplot_kw={"projection": "3d"})
     X_, Y_ = np.meshgrid(X, Y)
 
@@ -169,6 +184,35 @@ def plot_landscape(X, Y, Z, ax_labels: Tuple[str, str, str]=None,
 
     # Add a color bar which maps values to colors.
     # fig.colorbar(surf, shrink=0.5, aspect=5)
+
+    if path is None:
+        plt.show()
+    else:
+        plt.savefig(path)
+
+
+def plot_heatmap(x, y, z, ax_labels: Tuple[str, str]=None, path: str=None):
+    # Init figure
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
+    # Plot heatmap
+    extent = [x.min(), x.max(), y.min(), y.max()]
+    im = ax.imshow(np.flip(z, axis=0), cmap=cm.coolwarm, interpolation='nearest', extent=extent)
+
+    # Add colorbar
+    fig.colorbar(im)
+
+    # Set axis labels
+    if ax_labels is not None:
+        ax.set_xlabel(ax_labels[0])
+        ax.set_ylabel(ax_labels[1])
+
+    # Set aspect ratio
+    ax.set_aspect('equal')
+    im = ax.get_images()
+    extent =  im[0].get_extent()
+    ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2])))
 
     if path is None:
         plt.show()

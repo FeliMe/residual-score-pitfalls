@@ -14,6 +14,7 @@ from utils import (
     disk_anomaly,
     load_nii,
     plot_landscape,
+    plot_heatmap,
     show,
 )
 
@@ -64,5 +65,7 @@ if __name__ == "__main__":
         results.append(result_row)
 
     results = np.array(results)
+    np.save("./results/experiment2_numbers.npy", results)
     plot_landscape(blurrings, radii, results, ("blur", "radius", "ap"))
+    plot_heatmap(blurrings, radii, results, ("blur", "radius"))
     import IPython ; IPython.embed() ; exit(1)

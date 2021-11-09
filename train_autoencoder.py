@@ -77,7 +77,7 @@ class Trainer:
 
     def init_optimizer(self, config):
         optimizer = torch.optim.AdamW(self.model.parameters(),
-                                    lr=config.lr)
+                                      lr=config.lr, weight_decay=2e-2)
         return optimizer
 
     def save_ckpt(self, name: str):
@@ -233,7 +233,7 @@ if __name__ == "__main__":
     # Model params
     parser.add_argument("--model_width", type=int, default=32)
     parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
-    parser.add_argument("--latent_dim", type=int, default=128)
+    parser.add_argument("--latent_dim", type=int, default=256)
     # Training params
     parser.add_argument("--num_steps", type=int, default=int(1e4))
     parser.add_argument("--log_inverval", type=int, default=100)

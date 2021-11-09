@@ -21,3 +21,5 @@ __pycache__/
 # w&b-created directories
 /artifacts/
 /wandb/
+/best.pt
+/last.pt
