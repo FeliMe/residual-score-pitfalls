@@ -97,11 +97,13 @@ class Trainer:
         return torch.load(loaded.name)
 
     def step(self, x):
+        x.requires_grad = True
         self.optimizer.zero_grad()
         rec = self.model(x)
         rec_error = F.l1_loss(rec, x, reduction="none")
         loss = rec_error.mean()
         loss.backward()
+        import IPython ; IPython.embed() ; exit(1)
         self.optimizer.step()
         return loss, rec, rec_error
 

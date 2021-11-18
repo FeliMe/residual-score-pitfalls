@@ -2,51 +2,36 @@
 Experiment 2:
   - Same as experiment 1, but first dimension is not intensity, but anomaly volume
 """
-from typing import Tuple
-
 import numpy as np
+import random
 from tqdm import tqdm
-from typing import Tuple
 
+from artificial_anomalies import disk_anomaly, sample_position
 from utils import (
     average_precision,
     blur_img,
-    disk_anomaly,
     load_nii,
+    load_mood_test_data,
     plot_landscape,
     plot_heatmap,
     show,
 )
 
 
-def run_experiment_sample(img: np.ndarray, blur: float, intensity: float,
-            position: Tuple[int, int], radius: int):
-    """Run the experiment for a specific configuration"""
-    img_blur = blur_img(img, blur)
-    img_anomal, label = disk_anomaly(img, position, radius, intensity)
-    pred = np.abs(img_blur - img_anomal)
-    ap = average_precision(label, pred)
-    return (img_anomal, img_blur, pred, label, ap)
-
-
-def summary(img: np.ndarray, blur: float, intensity: float,
-            position: Tuple[int, int], radius: int) -> None:
-    img_anomal, img_blur, pred, label, ap = run_experiment_sample(
-        img, blur, intensity, position, radius
-    )
-    print(f"Average precision: {ap:.4f}")
-    show([img, img_anomal, img_blur, pred, label])
-
-
 if __name__ == "__main__":
+    # Place random seeds
+    seed = 0
+    random.seed(seed)
+    np.random.seed(seed)
+
     # Load image
-    img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
-    # img_path = os.path.join(MOODROOT, "brain/test_raw/00480.nii.gz")
-    volume, _ = load_nii(img_path, primary_axis=2)
-    img = volume[volume.shape[0] // 2]
+    # img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
+    # volume, _ = load_nii(img_path, primary_axis=2)
+    # img = volume[volume.shape[0] // 2]
+    imgs = load_mood_test_data()
 
     # Select ball position and radius
-    position = (128, 180)
+    # position = (128, 180)
     intensity = 0.6
 
     results = []  # Gather ap results here
@@ -57,15 +42,29 @@ if __name__ == "__main__":
     for radius in tqdm(radii):
         result_row = []
         for blur in blurrings:
-            img_blur = blur_img(img, blur)
-            img_anomal, label = disk_anomaly(img, position, radius, intensity)
-            pred = np.abs(img_blur - img_anomal)
-            ap = average_precision(label, pred)
-            result_row.append(ap)
+            aps = []
+            for img in imgs:
+                # Blur the normal image (simulates imperfect reconstruction)
+                img_blur = blur_img(img, blur)
+                # Create an anomaly at a random position
+                random.seed(seed)
+                np.random.seed(seed)
+                position = sample_position(img)
+                img_anomal, label = disk_anomaly(img, position, radius, intensity)
+                # Compute the reconstruction error
+                pred = np.abs(img_blur - img_anomal)
+                # Compute the average precision
+                ap = average_precision(label, pred)
+                aps.append(ap)
+            result_row.append(np.mean(aps))
         results.append(result_row)
 
     results = np.array(results)
-    np.save("./results/experiment2_numbers.npy", results)
-    plot_landscape(blurrings, radii, results, ("blur", "radius", "ap"))
-    plot_heatmap(blurrings, radii, results, ("blur", "radius"))
+    np.save("./results/experiment2_full_numbers_intensity06.npy", results)
+    # plot_landscape(blurrings, radii, results, ("blur", "radius", "ap"),
+    #                path="./results/experiment2_full_landscape_intensity06.png")
+    # plot_heatmap(blurrings, radii, results, ("blur", "radius"),
+    #              path="./results/experiment2_full_heatmap_intensity06.png")
+    # plot_landscape(blurrings, radii, results, ("blur", "radius", "ap"))
+    # plot_heatmap(blurrings, radii, results, ("blur", "radius"))
     import IPython ; IPython.embed() ; exit(1)
