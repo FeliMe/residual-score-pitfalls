@@ -34,13 +34,70 @@ def weights_init_relu_normal(m):
             nn.init.zeros_(m.bias)
 
 
+class Reshape(nn.Module):
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
+
+    def forward(self, x: Tensor) -> Tensor:
+        return x.view(self.size)
+
+
+""""""""""""""""""""""""""""""""" Unified AE """""""""""""""""""""""""""""""""
+
+
+def build_encoder(in_channels: int, hidden_dims: List[int]) -> nn.Module:
+    # Build encoder
+    encoder = []
+    for h_dim in hidden_dims:
+        encoder.append(
+            nn.Sequential(
+                nn.Conv2d(in_channels, h_dim, kernel_size=3, stride=2,
+                          padding=1, bias=False),
+                nn.BatchNorm2d(h_dim),
+                nn.LeakyReLU(),
+            )
+        )
+        in_channels = h_dim
+    return nn.Sequential(*encoder)
+
+
+def build_decoder(out_channels: int, hidden_dims: List[int]) -> nn.Module:
+    # Build decoder
+    decoder = []
+    for i in range(len(hidden_dims) - 1, 0, -1):
+        decoder.append(
+            nn.Sequential(
+                nn.ConvTranspose2d(hidden_dims[i], hidden_dims[i - 1],
+                                   kernel_size=3, stride=2, padding=1,
+                                   output_padding=1, bias=False),
+                nn.BatchNorm2d(hidden_dims[i - 1]),
+                nn.LeakyReLU(),
+            )
+        )
+    decoder.append(
+        nn.Sequential(
+            nn.ConvTranspose2d(hidden_dims[0], hidden_dims[0],
+                               kernel_size=3, stride=2, padding=1,
+                               output_padding=1, bias=False),
+            nn.BatchNorm2d(hidden_dims[0]),
+            nn.LeakyReLU(),
+        )
+    )
+    # Final layer
+    decoder.append(
+        nn.Conv2d(hidden_dims[0], out_channels, kernel_size=1, bias=False)
+    )
+    return nn.Sequential(*decoder)
+
+
 """"""""""""""""""""""""""""""""" AutoEncoder """""""""""""""""""""""""""""""""
 
 
 class AutoEncoder(nn.Module):
     def __init__(self,
                  inp_size,
-                 intermediate_resolution = [8, 8],
+                 intermediate_resolution=[8, 8],
                  in_channels: int = 1,
                  out_channels: int = 1,
                  latent_dim: int = 256,
@@ -64,80 +121,34 @@ class AutoEncoder(nn.Module):
             hidden_dims = [min(128, width * (2**i)) for i in range(num_layers)]
         self.hidden_dims = hidden_dims
 
-        """ Build encoder """
-        encoder = []
-        self.feat_size = inp_size
-        for h_dim in self.hidden_dims:
-            encoder.append(
-                nn.Sequential(
-                    nn.Conv2d(in_channels, out_channels=h_dim,
-                              kernel_size=4,
-                              stride=2,
-                              padding=1,
-                              bias=False),
-                    nn.BatchNorm2d(h_dim),
-                    nn.LeakyReLU()
-                )
-            )
-            in_channels = h_dim
-            # Floor divide
-            self.feat_size = torch.div(self.feat_size, 2, rounding_mode="trunc")
+        intermediate_feats = torch.prod(intermediate_resolution) * hidden_dims[-1]
 
-        self.encoder = nn.Sequential(*encoder)
+        # Encoder
+        self.encoder = build_encoder(in_channels, hidden_dims)
 
-        n_feats = int(torch.prod(self.feat_size)) * hidden_dims[-1]
-        self.bottleneck = nn.Linear(n_feats, latent_dim)
-
-        """ Build decoder """
-        decoder = []
-
-        self.decoder_input = nn.Linear(latent_dim, n_feats)
-
-        hidden_dims.reverse()
-
-        for i in range(len(hidden_dims) - 1):
-            decoder.append(
-                nn.Sequential(
-                    nn.ConvTranspose2d(hidden_dims[i], hidden_dims[i+1],
-                                       kernel_size=4,
-                                       stride=2,
-                                       padding=1,
-                                       bias=False),
-                    nn.BatchNorm2d(hidden_dims[i+1]),
-                    nn.LeakyReLU()
-                )
-            )
-
-        decoder.append(
-            nn.Sequential(
-                nn.ConvTranspose2d(hidden_dims[-1], hidden_dims[-1],
-                                   kernel_size=4,
-                                   stride=2,
-                                   padding=1,
-                                   bias=False),
-                nn.BatchNorm2d(hidden_dims[-1]),
-                nn.LeakyReLU(),
-                nn.Conv2d(hidden_dims[-1], out_channels, kernel_size=3,
-                          padding=1),
-                nn.Tanh()
-            )
+        # Bottleneck
+        self.bottleneck = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(intermediate_feats, latent_dim, bias=False),
+        )
+        self.decoder_input = nn.Sequential(
+            nn.Linear(latent_dim, intermediate_feats, bias=False),
+            Reshape((-1, hidden_dims[-1], *intermediate_resolution)),
         )
 
-        self.decoder = nn.Sequential(*decoder)
-
+        # Decoder
+        self.decoder = build_decoder(1, hidden_dims)
 
     def forward(self, inp: Tensor) -> Tensor:
         # Encoder
         z = self.encoder(inp)
 
         # Bottleneck
-        z = torch.flatten(z, start_dim=1)
         z = self.bottleneck(z)
         z = self.decoder_input(z)
-        y = z.view(-1, self.hidden_dims[0], *self.feat_size.tolist())
 
         # Decoder
-        y = self.decoder(y)
+        y = self.decoder(z)
         return y
 
 
@@ -150,6 +161,7 @@ def load_autoencoder(model_ckpt: str) -> AutoEncoder:
     run_path = f"felix-meissen/reconstruction-score-bias/{run_name}"
     loaded = wandb.restore(model_name, run_path=run_path)
     ckpt = torch.load(loaded.name)
+    os.remove(loaded.name)
 
     # Extract config
     config = Namespace(**ckpt['config'])
@@ -167,6 +179,7 @@ def load_autoencoder(model_ckpt: str) -> AutoEncoder:
 
     return model
 
+
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     x = torch.rand((2, 1, 256, 256)).to(device)
@@ -174,5 +187,3 @@ if __name__ == "__main__":
     print(model)
     y = model(x)
     print(y.shape)
-
-    import IPython ; IPython.embed() ; exit(1)

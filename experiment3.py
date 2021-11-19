@@ -50,18 +50,21 @@ if __name__ == "__main__":
     # position = (128, 200)
     radius = 20
 
-    results = []  # Gather ap results here
+    ap_results = []  # Gather ap results here
+    rec_results = []  # Gather reconstruction error results here
     blurrings = np.linspace(0., 5., num=100)  # First dimension
 
     # Perform experiment
     for blur in tqdm(blurrings):
         aps = []
+        rec_errs = []
+        # Reset the random seed so for every intensity and blurring we get the same positions
+        random.seed(seed)
+        np.random.seed(seed)
         for img in imgs:
             # Blur the normal image (simulates imperfect reconstruction)
             img_blur = blur_img(img, blur)
             # Create an anomaly at a random position
-            random.seed(seed)
-            np.random.seed(seed)
             position = sample_position(img)
             if anomaly == 'source_deformation':
                 img_anomal, label = source_deformation_anomaly(img, position, radius)
@@ -76,11 +79,15 @@ if __name__ == "__main__":
             # Compute the average precision
             ap = average_precision(label, pred)
             aps.append(ap)
-        results.append(np.mean(aps))
+            rec_errs.append(pred.mean())
+        ap_results.append(np.mean(aps))
+        rec_results.append(np.mean(rec_errs))
 
-    results = np.array(results)
-    np.save(f"./results/experiment3_full_{anomaly}_numbers.npy", results)
+    ap_results = np.array(ap_results)
+    rec_results = np.array(rec_results)
+    np.save(f"./results/experiment3_full_{anomaly}_aps.npy", ap_results)
+    np.save(f"./results/experiment3_full_{anomaly}_rec_errs.npy", rec_results)
     # plot_curve(blurrings, results, ("blur", "ap"),
     #            f"./results/experiment3_full_{anomaly}.png")
     # plot_curve(blurrings, results, ("blur", "ap"))
-    import IPython ; IPython.embed() ; exit(1)
+    import IPython; IPython.embed(); exit(1)

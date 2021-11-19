@@ -1,3 +1,4 @@
+
 import argparse
 from glob import glob
 import os
@@ -11,8 +12,8 @@ from torch.utils.data import DataLoader
 import wandb
 
 from dataset import TrainDataset, TestDataset
-from models import AutoEncoder
 from utils import get_training_timings, average_precision
+from vqvae import VQVAE
 
 
 class Trainer:
@@ -35,12 +36,7 @@ class Trainer:
         self.device = self.config.device
 
         # Init model and optimizer
-        self.model = AutoEncoder(
-            inp_size=self.config.inp_size,
-            intermediate_resolution=self.config.intermediate_resolution,
-            latent_dim=self.config.latent_dim,
-            width=self.config.model_width
-        ).to(self.device)
+        self.model = VQVAE().to(self.device)
         self.optimizer = self.init_optimizer(config)
 
         wandb.watch(self.model)
@@ -65,8 +61,8 @@ class Trainer:
 
     def init_val_ds(self, val_files):
         ds = TestDataset(files=val_files,
-                          img_size=self.config.inp_size[0],
-                          slice_range=self.config.slice_range)
+                         img_size=self.config.inp_size[0],
+                         slice_range=self.config.slice_range)
         print(f"Validating on {len(ds)} slices")
         loader = DataLoader(ds, batch_size=self.config.batch_size,
                             shuffle=True,
@@ -96,9 +92,10 @@ class Trainer:
 
     def step(self, x):
         self.optimizer.zero_grad()
-        rec = self.model(x)
+        rec, latent_loss = self.model(x)
         rec_error = F.l1_loss(rec, x, reduction="none")
-        loss = rec_error.mean()
+        rec_loss = rec_error.mean()
+        loss = rec_loss + self.config.latent_loss_weight * latent_loss
         loss.backward()
         self.optimizer.step()
         return loss, rec, rec_error
@@ -142,7 +139,7 @@ class Trainer:
                 # Log if necessary
                 if i_step % self.config.log_interval == 0:
                     # Log timings
-                    time_elapsed, _, time_left = get_training_timings(
+                    time_elapsed, time_per_step, time_left = get_training_timings(
                         start_time, i_step, num_steps
                     )
                     print(f"Step [{i_step}|{num_steps}] - "
@@ -188,7 +185,7 @@ class Trainer:
         with torch.no_grad():
             for _, x, label in valloader:
                 x = x.to(self.device)
-                rec = self.model(x)
+                rec, _ = self.model(x)
                 rec_error = F.l1_loss(rec, x, reduction="none")
                 loss = rec_error.mean()
                 losses.append(loss.item())
@@ -230,11 +227,6 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--val_fraction", type=float, default=0.05)
     parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--load_to_ram", type=bool, default=True)
-    # Model params
-    parser.add_argument("--model_width", type=int, default=32)
-    parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
-    parser.add_argument("--latent_dim", type=int, default=256)
     # Training params
     parser.add_argument("--num_steps", type=int, default=int(1e4))
     parser.add_argument("--log_interval", type=int, default=100)
@@ -242,8 +234,10 @@ if __name__ == "__main__":
     parser.add_argument("--num_imgs_log", type=int, default=12)
     # Real hparams
     parser.add_argument("--lr", type=int, default=1e-3)
+    parser.add_argument("--latent_loss_weight", type=float, default=0.25)
     config = parser.parse_args()
 
+    config.model_type = "VQ-VAE"
     config.device = config.device if torch.cuda.is_available() else "cpu"
     print(f"Training on {config.device}")
 

@@ -6,7 +6,6 @@ Experiment 1:
   - Do this for all intensities from 0 to 1 and report the average precision
   - In a second dimension, add gaussian blur to the image (simulates imperfect reconstruction of the Autoencoder)
 """
-from typing import Tuple
 import random
 
 import numpy as np
@@ -40,21 +39,25 @@ if __name__ == "__main__":
     # position = (128, 200)
     radius = 20
 
-    results = []  # Gather ap results here
+    ap_results = []  # Gather ap results here
+    rec_results = []  # Gather reconstruction error results here
     intensities = np.linspace(0., 1., num=100)  # First dimension
     blurrings = np.linspace(0., 5., num=100)  # Second dimension
 
     # Perform experiment
     for intensity in tqdm(intensities):
-        result_row = []
+        ap_result_row = []
+        rec_result_row = []
         for blur in blurrings:
             aps = []
+            rec_errs = []
+            # Reset the random seed so for every intensity and blurring we get the same positions
+            random.seed(seed)
+            np.random.seed(seed)
             for img in imgs:
                 # Blur the normal image (simulates imperfect reconstruction)
                 img_blur = blur_img(img, blur)
                 # Create an anomaly at a random position
-                random.seed(seed)
-                np.random.seed(seed)
                 position = sample_position(img)
                 img_anomal, label = disk_anomaly(img, position, radius, intensity)
                 # Compute the reconstruction error
@@ -62,15 +65,21 @@ if __name__ == "__main__":
                 # Compute the average precision
                 ap = average_precision(label, pred)
                 aps.append(ap)
-            result_row.append(np.mean(aps))
-        results.append(result_row)
+                rec_errs.append(pred.mean())
+            ap_result_row.append(np.mean(aps))
+            rec_result_row.append(np.mean(rec_errs))
 
-    results = np.array(results)
-    np.save("./results/experiment1_full_numbers.npy", results)
-    # plot_landscape(blurrings, intensities, results, ("blur", "intensity", "ap"),
+        ap_results.append(ap_result_row)
+        rec_results.append(rec_result_row)
+
+    ap_results = np.array(ap_results)
+    rec_results = np.array(rec_results)
+    np.save("./results/experiment1_full_aps.npy", ap_results)
+    np.save("./results/experiment1_full_rec_errs.npy", ap_results)
+    # plot_landscape(blurrings, intensities, ap_results, ("blur", "intensity", "ap"),
     #                path="./results/experiment1_full_landscape.png")
-    # plot_heatmap(blurrings, intensities, results, ("blur", "intensity"),
+    # plot_heatmap(blurrings, intensities, ap_results, ("blur", "intensity"),
     #              path="./results/experiment1_full_heatmap.png")
-    # plot_landscape(blurrings, intensities, results, ("blur", "intensity", "ap"))
-    # plot_heatmap(blurrings, intensities, results, ("blur", "intensity"))
+    # plot_landscape(blurrings, intensities, ap_results, ("blur", "intensity", "ap"))
+    # plot_heatmap(blurrings, intensities, ap_results, ("blur", "intensity"))
     import IPython ; IPython.embed() ; exit(1)
