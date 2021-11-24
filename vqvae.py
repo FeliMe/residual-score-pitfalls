@@ -180,7 +180,7 @@ class VQVAE(nn.Module):
             embed_dim, embed_dim, channel, n_res_block, n_res_channel, stride=2
         )
         self.quantize_conv_b = nn.Conv2d(embed_dim + channel, embed_dim, 1)
-        self.quantize_b = Quantize(embed_dim, n_embed)
+        self.quantize_b = Quantize(embed_dim, n_embed, decay)
         self.upsample_t = nn.ConvTranspose2d(
             embed_dim, embed_dim, 4, stride=2, padding=1
         )
@@ -263,3 +263,4 @@ if __name__ == "__main__":
     y, latent_loss = model(x)
     print(y.shape)
     print(latent_loss.shape)
+    import IPython ; IPython.embed() ; exit(1)

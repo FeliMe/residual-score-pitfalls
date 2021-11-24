@@ -8,7 +8,7 @@ from typing import Tuple
 from torch.utils.data import Dataset
 
 from artificial_anomalies import disk_anomaly, sample_position
-from utils import load_nii_nn, load_files_to_ram, volume_viewer
+from utils import load_nii_nn, load_files_to_ram, volume_viewer, show
 
 
 class BrainDataset(Dataset):
@@ -66,7 +66,7 @@ class TestDataset(BrainDataset):
         # Create anomalies
         normal, anomal, labels = self.create_anomalies(samples)
         self.print(f"Loaded data in {perf_counter() - t_start:.2f}s")
-        return normal, anomal, labels
+        return [[n, a, l] for n, a, l in zip(normal, anomal, labels)]
 
     def create_anomalies(self, samples):
         anomal_samples = []
@@ -82,10 +82,7 @@ class TestDataset(BrainDataset):
         return samples, anomal_samples, labels
 
     def __getitem__(self, idx):
-        normal = self.samples[0][idx]
-        anomal = self.samples[1][idx]
-        label = self.samples[2][idx]
-        return normal, anomal, label
+        return self.samples[idx]
 
 
 if __name__ == "__main__":

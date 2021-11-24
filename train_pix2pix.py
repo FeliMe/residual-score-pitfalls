@@ -12,8 +12,8 @@ from torch.utils.data import DataLoader
 import wandb
 
 from dataset import TrainDataset, TestDataset
+from models import AutoEncoder, Discriminator, weights_init_gan
 from utils import get_training_timings, average_precision
-from models import VQVAE
 
 
 class Trainer:
@@ -35,26 +35,35 @@ class Trainer:
         # Just shortening often useed variables
         self.device = self.config.device
 
-        # Init model and optimizer
-        # self.model = VQVAE().to(self.device)
-        self.model = VQVAE(
+        # Init models and optimizer
+        self.generator = AutoEncoder(
             inp_size=self.config.inp_size,
             intermediate_resolution=self.config.intermediate_resolution,
             latent_dim=self.config.latent_dim,
-            n_embed=self.config.codebook_size,
-            width=self.config.model_width
+            width=self.config.model_width,
+            final_activation='sigmoid'
         ).to(self.device)
-        self.optimizer = self.init_optimizer(config)
+        self.discriminator = Discriminator(inp_size=self.config.inp_size).to(self.device)
+        self.optimizer_g = torch.optim.AdamW(self.generator.parameters(),
+                                             lr=self.config.lr,
+                                             betas=(0.5, 0.999))
+        self.optimizer_d = torch.optim.AdamW(self.discriminator.parameters(),
+                                             lr=self.config.lr_d,
+                                             betas=(0.5, 0.999))
 
-        wandb.watch(self.model)
+        wandb.watch(self.generator)
 
         # If loaded from checkpoint, apply state dict
         if ckpt is not None:
-            self.model.load_state_dict(ckpt["model_state_dict"])
-            self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+            self.generator.load_state_dict(ckpt["generator_state_dict"])
+            self.discriminator.load_state_dict(ckpt["discriminator_state_dict"])
+            self.optimizer_g.load_state_dict(ckpt["optimizer_g_state_dict"])
+            self.optimizer_d.load_state_dict(ckpt["optimizer_d_state_dict"])
             self.global_step = ckpt["global_step"]
         else:
             self.global_step = 0
+            self.generator.apply(weights_init_gan)
+            self.discriminator.apply(weights_init_gan)
 
     def init_train_ds(self, train_files):
         ds = TrainDataset(files=train_files,
@@ -76,40 +85,102 @@ class Trainer:
                             num_workers=self.config.num_workers)
         return loader
 
-    def init_optimizer(self, config):
-        optimizer = torch.optim.AdamW(self.model.parameters(),
-                                      lr=config.lr, weight_decay=2e-2)
-        return optimizer
-
     def save_ckpt(self, name: str):
         torch.save({
             "config": dict(self.config),
             "global_step": self.global_step,
-            "model_state_dict": self.model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
+            "generator_state_dict": self.generator.state_dict(),
+            "discriminator_state_dict": self.discriminator.state_dict(),
+            "optimizer_g_state_dict": self.optimizer_g.state_dict(),
+            "optimizer_d_state_dict": self.optimizer_d.state_dict(),
         }, os.path.join(wandb.run.dir, name))
 
     @staticmethod
     def restore_ckpt(model_ckpt: str):
-        # TODO: Move all model parameters to self.device
         run_name, model_name = os.path.split(model_ckpt)
         run_path = f"felix-meissen/reconstruction-score-bias/{run_name}"
         loaded = wandb.restore(model_name, run_path=run_path)
         return torch.load(loaded.name)
 
     def step(self, x):
-        self.optimizer.zero_grad()
-        rec, latent_loss = self.model(x)
-        rec_error = F.l1_loss(rec, x, reduction="none")
+        label_real = torch.ones((x.shape[0],), device=self.device)
+        label_fake = torch.zeros((x.shape[0],), device=self.device)
+
+        """ 1. Train Generator, maximize log(D(G(z))) """
+        self.optimizer_g.zero_grad()
+
+        # Generate fake
+        rec = self.generator(x)
+
+        # Discriminate fake
+        pred_fake = self.discriminator(rec)
+
+        # Generator GAN loss, try to make it fool the discriminator
+        gan_loss_g = F.binary_cross_entropy_with_logits(pred_fake, label_real)
+        rec_error = F.l1_loss(rec, x, reduction='none')
         rec_loss = rec_error.mean()
-        loss = rec_loss + self.config.latent_loss_weight * latent_loss
-        loss.backward()
-        self.optimizer.step()
+
+        # Combine losses and backward
+        generator_loss = gan_loss_g + self.config.rec_loss_weight * rec_loss
+        generator_loss.backward()
+        self.optimizer_g.step()
+
+        """ 2. Train critic, maximize log(D(x)) + log(1 - D(G(z))) """
+        self.optimizer_d.zero_grad()
+
+        # All real batch
+        pred_real = self.discriminator(x)
+        loss_real = F.binary_cross_entropy_with_logits(pred_real, label_real)
+
+        # All fake batch
+        pred_fake = self.discriminator(rec.detach())
+        loss_fake = F.binary_cross_entropy_with_logits(pred_fake, label_fake)
+
+        # Combine losses and backward
+        gan_loss_d = (loss_real + loss_fake) / 2.
+        gan_loss_d.backward()
+        self.optimizer_d.step()
+
         return {
-            'loss': loss.item(),
+            'gan_loss_d': gan_loss_d.item(),
+            'gan_loss_g': gan_loss_g.item(),
             'rec_loss': rec_loss.item(),
-            'vqvae_latent_loss': latent_loss.item()
+            'gan_loss': gan_loss_d.item() + gan_loss_g.item(),
         }, rec, rec_error
+
+    def val_step(self, x):
+        x = x.to(self.device)
+        label_real = torch.ones((x.shape[0],), device=self.device)
+        label_fake = torch.zeros((x.shape[0],), device=self.device)
+
+        with torch.no_grad():
+            # 1.1 Autoencoder GAN loss
+            rec = self.generator(x)
+            pred_fake = self.discriminator(rec)
+            gan_loss_g = F.binary_cross_entropy_with_logits(pred_fake, label_real)
+
+            # 1.2 Autoencoder reconstruction loss
+            rec_error = F.l1_loss(rec, x, reduction="none")
+            rec_loss = rec_error.mean()
+
+            # 2.1 Critic on real batch
+            pred_real = self.discriminator(x)
+            d_loss_real = F.binary_cross_entropy_with_logits(pred_real, label_real)
+
+            # 2.2 Critic on fake batch
+            pred_fake = self.discriminator(rec.detach())
+            d_loss_fake = F.binary_cross_entropy_with_logits(pred_fake, label_fake)
+
+            # 3. Combine losses
+            gan_loss_d = d_loss_real + d_loss_fake
+            gan_loss = gan_loss_d + gan_loss_g
+
+        return {
+            'gan_loss_d': gan_loss_d.item(),
+            'gan_loss_g': gan_loss_g.item(),
+            'rec_loss': rec_loss.item(),
+            'gan_loss': gan_loss.item(),
+        }, rec.cpu(), rec_error.cpu()
 
     def log_progress(self, metrics: dict, images: dict):
         # Print metrics
@@ -135,9 +206,11 @@ class Trainer:
         best_val_ap = 0.
         best_val_loss = float('inf')
 
-        self.model.train()
+        self.generator.train()
+        self.discriminator.train()
         while True:  # Stopping is handled by num_steps
             for x in trainloader:
+                # x = x * 2. - 1.  # Normalize to -1, 1, TODO: remove this
                 x = x.to(self.device)
 
                 # Update step
@@ -179,7 +252,7 @@ class Trainer:
                     if val_ap > best_val_ap:
                         print(f"New best validation AP: {val_ap:.4f}")
                         best_val_ap = val_ap
-                        self.save_ckpt("best.pt")
+                        self.save_ckpt("best_ap.pt")
                     if val_loss < best_val_loss:
                         print(f"New best validation loss: {val_loss:.4f}")
                         best_val_loss = val_loss
@@ -191,38 +264,28 @@ class Trainer:
                     return
 
     def validate(self, valloader):
-        # Set model to evaluation
-        self.model.eval()
+        # Set models to evaluation
+        self.generator.eval()
+        self.discriminator.eval()
 
         # Initialize helper variables
-        losses = defaultdict(list)
+        val_losses = defaultdict(list)
         aps = []
 
         # Validation loop
-        with torch.no_grad():
-            for _, x, label in valloader:
-                x = x.to(self.device)
-
-                # Forward pass
-                rec, latent_loss = self.model(x)
-
-                # Compute losses
-                rec_error = F.l1_loss(rec, x, reduction="none")
-                rec_loss = rec_error.mean()
-                loss = rec_loss + self.config.latent_loss_weight * latent_loss
-
-                # Accumulate metrics
-                losses['rec_loss'].append(rec_loss.item())
-                losses['latent_loss'].append(latent_loss.item())
-                losses['loss'].append(loss.item())
-                aps.append(average_precision(label.cpu(), rec_error.cpu()))
+        for _, x, label in valloader:
+            # x = x * 2. - 1.  # Normalize to -1, 1, TODO: remove this
+            losses, rec, rec_error = self.val_step(x)
+            for k, v in losses.items():
+                val_losses[k].append(v)
+            aps.append(average_precision(label.cpu(), rec_error.cpu()))
 
         # Log results of validation
         x_log = x[:self.config.num_imgs_log].detach().cpu()
         rec_log = rec[:self.config.num_imgs_log].detach().cpu()
         rec_error_log = rec_error[:self.config.num_imgs_log].detach().cpu()
         self.log_progress(
-            {**{f'val/{k}': np.mean(v) for k, v in losses.items()},
+            {**{f'val/{k}': np.mean(v) for k, v in val_losses.items()},
              "val/average precision": np.mean(aps)},
             {"val/inputs": wandb.Image(x_log),
              "val/reconstructions": wandb.Image(rec_log),
@@ -230,9 +293,10 @@ class Trainer:
         )
 
         # Set model back to train
-        self.model.train()
+        self.generator.train()
+        self.discriminator.train()
 
-        return np.mean(losses['loss']), np.mean(aps)
+        return np.mean(val_losses['rec_loss']), np.mean(aps)
 
     def test(self):
         pass
@@ -253,22 +317,22 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--val_fraction", type=float, default=0.05)
     parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--load_to_ram", type=bool, default=True)
     # Model params
     parser.add_argument("--model_width", type=int, default=32)
     parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
     parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--codebook_size", type=int, default=512)
     # Training params
     parser.add_argument("--num_steps", type=int, default=int(1e4))
     parser.add_argument("--log_interval", type=int, default=100)
     parser.add_argument("--val_interval", type=int, default=200)
     parser.add_argument("--num_imgs_log", type=int, default=12)
     # Real hparams
-    parser.add_argument("--lr", type=int, default=1e-3)
-    parser.add_argument("--latent_loss_weight", type=float, default=0.25)
+    parser.add_argument("--lr", type=int, default=1e-4)
+    parser.add_argument("--lr_d", type=int, default=5e-5)
+    parser.add_argument("--rec_loss_weight", type=int, default=100)
     config = parser.parse_args()
 
-    config.model_type = "VQ-VAE"
     config.device = config.device if torch.cuda.is_available() else "cpu"
     print(f"Training on {config.device}")
 

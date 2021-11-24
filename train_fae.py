@@ -1,5 +1,4 @@
 import argparse
-from collections import defaultdict
 from glob import glob
 import os
 import random
@@ -12,8 +11,9 @@ from torch.utils.data import DataLoader
 import wandb
 
 from dataset import TrainDataset, TestDataset
+from fae import Extractor, FeatureAE
+from pytorch_ssim import SSIMLoss
 from utils import get_training_timings, average_precision
-from models import VQVAE
 
 
 class Trainer:
@@ -36,25 +36,33 @@ class Trainer:
         self.device = self.config.device
 
         # Init model and optimizer
-        # self.model = VQVAE().to(self.device)
-        self.model = VQVAE(
-            inp_size=self.config.inp_size,
-            intermediate_resolution=self.config.intermediate_resolution,
-            latent_dim=self.config.latent_dim,
-            n_embed=self.config.codebook_size,
-            width=self.config.model_width
+        self.extractor = Extractor(
+            inp_size=self.config.inp_size[0],
+            cnn_layers=['layer1', 'layer2', 'layer3'],
+            keep_feature_prop=self.config.keep_feature_prop,
         ).to(self.device)
-        self.optimizer = self.init_optimizer(config)
+        self.model = FeatureAE(
+            c_in=self.extractor.c_out,
+            c_z=self.config.latent_dim
+        ).to(self.device)
+        self.config.fae_c_in = self.extractor.c_out
+
+        self.optimizer = torch.optim.AdamW(self.model.parameters(),
+                                           lr=config.lr, weight_decay=2e-2)
 
         wandb.watch(self.model)
 
         # If loaded from checkpoint, apply state dict
         if ckpt is not None:
             self.model.load_state_dict(ckpt["model_state_dict"])
+            self.extractor.load_state_dict(ckpt["extractor_state_dict"])
             self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
             self.global_step = ckpt["global_step"]
         else:
             self.global_step = 0
+
+        self.loss_fn = SSIMLoss(size_average=True)
+        self.anomaly_fn = SSIMLoss(size_average=False)
 
     def init_train_ds(self, train_files):
         ds = TrainDataset(files=train_files,
@@ -76,16 +84,12 @@ class Trainer:
                             num_workers=self.config.num_workers)
         return loader
 
-    def init_optimizer(self, config):
-        optimizer = torch.optim.AdamW(self.model.parameters(),
-                                      lr=config.lr, weight_decay=2e-2)
-        return optimizer
-
     def save_ckpt(self, name: str):
         torch.save({
             "config": dict(self.config),
             "global_step": self.global_step,
             "model_state_dict": self.model.state_dict(),
+            "extractor_state_dict": self.extractor.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
         }, os.path.join(wandb.run.dir, name))
 
@@ -99,19 +103,21 @@ class Trainer:
 
     def step(self, x):
         self.optimizer.zero_grad()
-        rec, latent_loss = self.model(x)
-        rec_error = F.l1_loss(rec, x, reduction="none")
-        rec_loss = rec_error.mean()
-        loss = rec_loss + self.config.latent_loss_weight * latent_loss
+        feats = self.extractor(x)
+        rec = self.model(feats)
+        loss = self.loss_fn(rec, feats)
         loss.backward()
         self.optimizer.step()
-        return {
-            'loss': loss.item(),
-            'rec_loss': rec_loss.item(),
-            'vqvae_latent_loss': latent_loss.item()
-        }, rec, rec_error
+        return loss
 
-    def log_progress(self, metrics: dict, images: dict):
+    def get_anomaly_map(self, rec, feats):
+        anomaly_map = torch.mean(self.anomaly_fn(rec, feats),
+                                 dim=1, keepdim=True)
+        anomaly_map = F.interpolate(anomaly_map, size=self.config.inp_size[0],
+                                    mode="bilinear", align_corners=True)
+        return anomaly_map
+
+    def log_progress(self, metrics: dict, images: dict = None):
         # Print metrics
         log_str = ""
         for name, val in metrics.items():
@@ -120,7 +126,8 @@ class Trainer:
 
         # Log metrics to w&b
         wandb.log(metrics, step=self.global_step)
-        wandb.log(images, step=self.global_step)
+        if images is not None:
+            wandb.log(images, step=self.global_step)
 
     def train(self, num_steps, train_files, val_files=None):
         # Initialize train dataloader
@@ -131,7 +138,7 @@ class Trainer:
         # Initialize helper variables
         start_time = time()
         i_step = 0
-        train_losses = defaultdict(list)
+        losses = []
         best_val_ap = 0.
         best_val_loss = float('inf')
 
@@ -141,9 +148,8 @@ class Trainer:
                 x = x.to(self.device)
 
                 # Update step
-                losses, rec, rec_error = self.step(x)
-                for k, v in losses.items():
-                    train_losses[k].append(v)
+                loss = self.step(x)
+                losses.append(loss.item())
 
                 # Increment counters
                 self.global_step += 1
@@ -160,18 +166,12 @@ class Trainer:
                           f"Time left: {time_left} - ", end='')
 
                     # Log metrics
-                    x_log = x[:self.config.num_imgs_log].detach().cpu()
-                    rec_log = rec[:self.config.num_imgs_log].detach().cpu()
-                    rec_error_log = rec_error[:self.config.num_imgs_log].detach().cpu()
                     self.log_progress(
-                        {f'train/{k}': np.mean(v) for k, v in train_losses.items()},
-                        {"train/inputs": wandb.Image(x_log),
-                         "train/reconstructions": wandb.Image(rec_log),
-                         "train/rec error": wandb.Image(rec_error_log)}
+                        {"train/latent_rec_loss": np.mean(losses)},
                     )
 
                     # Empty accumulated losses
-                    train_losses = defaultdict(list)
+                    losses = []
 
                 # Validate if necessary and possible
                 if i_step % self.config.val_interval == 0 and valloader is not None:
@@ -179,7 +179,7 @@ class Trainer:
                     if val_ap > best_val_ap:
                         print(f"New best validation AP: {val_ap:.4f}")
                         best_val_ap = val_ap
-                        self.save_ckpt("best.pt")
+                        self.save_ckpt("best_ap.pt")
                     if val_loss < best_val_loss:
                         print(f"New best validation loss: {val_loss:.4f}")
                         best_val_loss = val_loss
@@ -195,44 +195,31 @@ class Trainer:
         self.model.eval()
 
         # Initialize helper variables
-        losses = defaultdict(list)
+        losses = []
         aps = []
 
         # Validation loop
         with torch.no_grad():
             for _, x, label in valloader:
                 x = x.to(self.device)
-
-                # Forward pass
-                rec, latent_loss = self.model(x)
-
-                # Compute losses
-                rec_error = F.l1_loss(rec, x, reduction="none")
-                rec_loss = rec_error.mean()
-                loss = rec_loss + self.config.latent_loss_weight * latent_loss
-
-                # Accumulate metrics
-                losses['rec_loss'].append(rec_loss.item())
-                losses['latent_loss'].append(latent_loss.item())
-                losses['loss'].append(loss.item())
-                aps.append(average_precision(label.cpu(), rec_error.cpu()))
+                feats = self.extractor(x)
+                rec = self.model(feats)
+                anomaly_map = self.get_anomaly_map(rec, feats)
+                loss = self.loss_fn(rec, feats)
+                losses.append(loss.item())
+                aps.append(average_precision(label.cpu(), anomaly_map.cpu()))
+                break
 
         # Log results of validation
-        x_log = x[:self.config.num_imgs_log].detach().cpu()
-        rec_log = rec[:self.config.num_imgs_log].detach().cpu()
-        rec_error_log = rec_error[:self.config.num_imgs_log].detach().cpu()
         self.log_progress(
-            {**{f'val/{k}': np.mean(v) for k, v in losses.items()},
+            {"val/latent_rec_loss": np.mean(losses),
              "val/average precision": np.mean(aps)},
-            {"val/inputs": wandb.Image(x_log),
-             "val/reconstructions": wandb.Image(rec_log),
-             "val/rec error": wandb.Image(rec_error_log)}
         )
 
         # Set model back to train
         self.model.train()
 
-        return np.mean(losses['loss']), np.mean(aps)
+        return np.mean(losses), np.mean(aps)
 
     def test(self):
         pass
@@ -250,25 +237,22 @@ if __name__ == "__main__":
     # Data params
     parser.add_argument("--inp_size", nargs='+', default=[256, 256])
     parser.add_argument("--slice_range", nargs='+', default=(120, 140))
-    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--val_fraction", type=float, default=0.05)
     parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--load_to_ram", type=bool, default=True)
     # Model params
-    parser.add_argument("--model_width", type=int, default=32)
-    parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
-    parser.add_argument("--latent_dim", type=int, default=256)
-    parser.add_argument("--codebook_size", type=int, default=512)
+    parser.add_argument("--keep_feature_prop", type=int, default=0.8)
+    parser.add_argument("--latent_dim", type=int, default=128)
     # Training params
     parser.add_argument("--num_steps", type=int, default=int(1e4))
     parser.add_argument("--log_interval", type=int, default=100)
     parser.add_argument("--val_interval", type=int, default=200)
     parser.add_argument("--num_imgs_log", type=int, default=12)
     # Real hparams
-    parser.add_argument("--lr", type=int, default=1e-3)
-    parser.add_argument("--latent_loss_weight", type=float, default=0.25)
+    parser.add_argument("--lr", type=int, default=2e-4)
     config = parser.parse_args()
 
-    config.model_type = "VQ-VAE"
     config.device = config.device if torch.cuda.is_available() else "cpu"
     print(f"Training on {config.device}")
 

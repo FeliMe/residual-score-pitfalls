@@ -37,7 +37,7 @@ def get_model_reconstruction(model, inp, device):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_type', type=str, choices=['ae', 'vq-vae'])
+    parser.add_argument('--model_type', type=str, choices=['ae', 'vq-vae', 'fae'])
     parser.add_argument('--model_ckpt', type=str, default='1ex8fxcl/best.pt')
     parser.add_argument('--experiment', type=int, default=1, choices=[1, 2])
     parser.add_argument('--device', type=str, default='cpu')

@@ -65,8 +65,8 @@ class Trainer:
 
     def init_val_ds(self, val_files):
         ds = TestDataset(files=val_files,
-                          img_size=self.config.inp_size[0],
-                          slice_range=self.config.slice_range)
+                         img_size=self.config.inp_size[0],
+                         slice_range=self.config.slice_range)
         print(f"Validating on {len(ds)} slices")
         loader = DataLoader(ds, batch_size=self.config.batch_size,
                             shuffle=True,
@@ -125,6 +125,7 @@ class Trainer:
         i_step = 0
         losses = []
         best_val_ap = 0.
+        best_val_loss = float('inf')
 
         self.model.train()
         while True:  # Stopping is handled by num_steps
@@ -154,7 +155,7 @@ class Trainer:
                     rec_log = rec[:self.config.num_imgs_log].detach().cpu()
                     rec_error_log = rec_error[:self.config.num_imgs_log].detach().cpu()
                     self.log_progress(
-                        {"train/loss": np.mean(losses)},
+                        {"train/rec_loss": np.mean(losses)},
                         {"train/inputs": wandb.Image(x_log),
                          "train/reconstructions": wandb.Image(rec_log),
                          "train/rec error": wandb.Image(rec_error_log)}
@@ -165,11 +166,15 @@ class Trainer:
 
                 # Validate if necessary and possible
                 if i_step % self.config.val_interval == 0 and valloader is not None:
-                    val_ap = self.validate(valloader)
+                    val_loss, val_ap = self.validate(valloader)
                     if val_ap > best_val_ap:
-                        print(f"New best validation AP: {val_ap}")
+                        print(f"New best validation AP: {val_ap:.4f}")
                         best_val_ap = val_ap
-                        self.save_ckpt("best.pt")
+                        self.save_ckpt("best_ap.pt")
+                    if val_loss < best_val_loss:
+                        print(f"New best validation loss: {val_loss:.4f}")
+                        best_val_loss = val_loss
+                        self.save_ckpt("best_loss.pt")
 
                 # Stop training if maximum number of steps is reached
                 if i_step >= num_steps:
@@ -209,7 +214,7 @@ class Trainer:
         # Set model back to train
         self.model.train()
 
-        return np.mean(aps)
+        return np.mean(losses), np.mean(aps)
 
     def test(self):
         pass
