@@ -7,6 +7,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.modules import padding
 
 import wandb
 
@@ -286,25 +287,23 @@ def load_autoencoder(model_ckpt: str) -> AutoEncoder:
     # Load weights
     model.load_state_dict(ckpt["model_state_dict"])
 
-    return model
+    return model, config
 
 
-""""""""""""""""""""""""""""""""" AutoEncoder """""""""""""""""""""""""""""""""
+""""""""""""""""""""""""""""""""" Spatial AE """""""""""""""""""""""""""""""""
 
 
-class VQVAE(nn.Module):
+class SpatialAutoEncoder(nn.Module):
     def __init__(self,
                  inp_size,
                  intermediate_resolution=[8, 8],
+                 latent_channels: int = 1,
                  in_channels: int = 1,
                  out_channels: int = 1,
-                 latent_dim: int = 256,
-                 n_embed: int = 512,
                  width: int = 32,
-                 hidden_dims: List = None) -> None:
+                 hidden_dims: List = None,
+                 final_activation='identity') -> None:
         super().__init__()
-
-        self.latent_dim = latent_dim
 
         assert len(inp_size) == 2
         if isinstance(inp_size, list) or isinstance(inp_size, tuple):
@@ -316,41 +315,137 @@ class VQVAE(nn.Module):
         if hidden_dims is None:
             size = inp_size[-1]
             res = intermediate_resolution[-1]
+            max_width = width * 4
             num_layers = int(log(size, 2) - log(res, 2))
-            hidden_dims = [min(128, width * (2**i)) for i in range(num_layers)]
+            hidden_dims = [min(max_width, width * (2**i)) for i in range(num_layers)]
         self.hidden_dims = hidden_dims
-
-        intermediate_feats = torch.prod(intermediate_resolution) * hidden_dims[-1]
 
         # Encoder
         self.encoder = vanilla_encoder(in_channels, hidden_dims)
 
         # Bottleneck
-        self.bottleneck = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(intermediate_feats, latent_dim, bias=False),
-        )
-        self.quantize = Quantize(latent_dim, n_embed)
-        self.decoder_input = nn.Sequential(
-            nn.Linear(latent_dim, intermediate_feats, bias=False),
-            Reshape((-1, hidden_dims[-1], *intermediate_resolution)),
-        )
+        self.bottleneck = nn.Conv2d(hidden_dims[-1], latent_channels,
+                                  kernel_size=1, bias=False)
+        self.decoder_input = nn.ConvTranspose2d(latent_channels, hidden_dims[-1],
+                                                kernel_size=1, bias=False)
 
         # Decoder
         self.decoder = vanilla_decoder(out_channels, hidden_dims)
 
+        if final_activation == 'identity':
+            self.final_activation = lambda x: x
+        elif final_activation == 'sigmoid':
+            self.final_activation = torch.sigmoid
+        elif final_activation == 'tanh':
+            self.final_activation = torch.tanh
+        elif final_activation == 'relu':
+            self.final_activation = torch.relu
+        else:
+            raise ValueError(f"Unknown activation {final_activation}")
+
     def forward(self, inp: Tensor) -> Tensor:
         # Encoder
-        enc = self.encoder(inp)
+        z = self.encoder(inp)
 
         # Bottleneck
-        z = self.bottleneck(enc)
-        quant, diff, _ = self.quantize(z)
-        dec_inp = self.decoder_input(quant)
+        z = self.bottleneck(z)
+        z = self.decoder_input(z)
 
         # Decoder
-        y = self.decoder(dec_inp)
-        return y, diff
+        y = self.decoder(z)
+
+        return self.final_activation(y)
+
+
+def load_spatial_autoencoder(model_ckpt: str) -> SpatialAutoEncoder:
+    """Load a model of the AutoEncoder class from a path of the format
+    <run_name>/<last or best>.pt"""
+
+    # Restore checkpoint
+    run_name, model_name = os.path.split(model_ckpt)
+    run_path = f"felix-meissen/reconstruction-score-bias/{run_name}"
+    loaded = wandb.restore(model_name, run_path=run_path)
+    ckpt = torch.load(loaded.name)
+    os.remove(loaded.name)
+
+    # Extract config
+    config = Namespace(**ckpt['config'])
+
+    # Init model
+    model = SpatialAutoEncoder(
+        inp_size=config.inp_size,
+        intermediate_resolution=config.intermediate_resolution,
+        width=config.model_width
+    )
+
+    # Load weights
+    model.load_state_dict(ckpt["model_state_dict"])
+
+    return model, config
+
+
+""""""""""""""""""""""""""""""""" Skip-AE """""""""""""""""""""""""""""""""
+
+
+class SkipAutoEncoder(nn.Module):
+    def __init__(self, width: int = 32):
+        super().__init__()
+
+        def down_block(in_channels, out_channels):
+            return nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2,
+                          padding=1, bias=False),
+                nn.BatchNorm2d(out_channels),
+                nn.LeakyReLU(0.2, inplace=True),
+            )
+
+        def up_block(in_channels, out_channels):
+            return nn.Sequential(
+                nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3,
+                                   stride=2, padding=1, output_padding=1,
+                                   bias=False),
+                nn.BatchNorm2d(out_channels),
+                nn.LeakyReLU(0.2, inplace=True),
+            )
+
+        max_width = width * 4
+        hidden_dims = [min(max_width, width * (2**i)) for i in range(5)]
+
+        # Encoder
+        self.down1 = down_block(1, hidden_dims[0])
+        self.down2 = down_block(hidden_dims[0], hidden_dims[1])
+        self.down3 = down_block(hidden_dims[1], hidden_dims[2])
+        self.down4 = down_block(hidden_dims[2], hidden_dims[3])
+        self.down5 = down_block(hidden_dims[3], hidden_dims[4])
+
+        # Decoder
+        self.up1 = up_block(hidden_dims[4], hidden_dims[3])
+        self.up2 = up_block(hidden_dims[3], hidden_dims[2])
+        self.up3 = up_block(hidden_dims[2], hidden_dims[1])
+        self.up4 = up_block(hidden_dims[1], hidden_dims[0])
+        self.up5 = up_block(hidden_dims[0], 1)
+
+        self.final_conv = nn.Conv2d(1, 1, kernel_size=1, stride=1)
+
+    def forward(self, inp: Tensor) -> Tensor:
+        # Encoder
+        x1 = self.down1(inp)
+        x2 = self.down2(x1)
+        x3 = self.down3(x2)
+        x4 = self.down4(x3)
+        x5 = self.down5(x4)
+
+        # Decoder
+        y1 = self.up1(x5)
+        y2 = self.up2(y1 + x4)
+        y3 = self.up3(y2)
+        y4 = self.up4(y3)
+        y5 = self.up5(y4)
+
+        y = self.final_conv(y5)
+
+        return y
+
 
 
 """"""""""""""""""""""""""""""""" Pix2Pix """""""""""""""""""""""""""""""""
@@ -385,9 +480,10 @@ class Discriminator(nn.Module):
 
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
     x = torch.rand((2, 1, 256, 256)).to(device)
-    # model = VQVAE(inp_size=(256, 256)).to(device)
-    model = Discriminator(inp_size=(256, 256)).to(device)
+    model = SpatialAutoEncoder(inp_size=(256, 256)).to(device)
+    # model = SkipAutoEncoder().to(device)
     print(model)
     y = model(x)
     print(y.shape)

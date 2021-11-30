@@ -16,6 +16,8 @@ from pytorch_ssim import SSIMLoss
 from utils import get_training_timings, average_precision
 
 
+
+
 class Trainer:
     def __init__(self, config):
 
@@ -29,6 +31,7 @@ class Trainer:
             ckpt["config"].update({"model_ckpt": config.model_ckpt}, allow_val_change=True)
             ckpt["config"].update({"debug": config.debug}, allow_val_change=True)
             ckpt["config"].update({"train": config.train}, allow_val_change=True)
+            ckpt["config"].update({"num_steps": config.num_steps}, allow_val_change=True)
             # Use restored config
             self.config.update(ckpt["config"], allow_val_change=True)
 
@@ -41,28 +44,30 @@ class Trainer:
             cnn_layers=['layer1', 'layer2', 'layer3'],
             keep_feature_prop=self.config.keep_feature_prop,
         ).to(self.device)
+        if ckpt is not None:
+            self.extractor.load_state_dict(ckpt["extractor_state_dict"])
         self.model = FeatureAE(
-            c_in=self.extractor.c_out,
+            c_in=self.extractor.feature_mask.sum().item(),
             c_z=self.config.latent_dim
         ).to(self.device)
-        self.config.fae_c_in = self.extractor.c_out
+        self.config.fae_c_in = self.extractor.feature_mask.sum().item()
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(),
                                            lr=config.lr, weight_decay=2e-2)
 
-        wandb.watch(self.model)
-
         # If loaded from checkpoint, apply state dict
         if ckpt is not None:
             self.model.load_state_dict(ckpt["model_state_dict"])
-            self.extractor.load_state_dict(ckpt["extractor_state_dict"])
             self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
             self.global_step = ckpt["global_step"]
         else:
             self.global_step = 0
 
+        wandb.watch(self.model)
+
         self.loss_fn = SSIMLoss(size_average=True)
-        self.anomaly_fn = SSIMLoss(size_average=False)
+        ssim_fn = SSIMLoss(size_average=False)
+        self.anomaly_fn = lambda x, y: (ssim_fn(x, y) + 1.) / 2.
 
     def init_train_ds(self, train_files):
         ds = TrainDataset(files=train_files,
@@ -99,7 +104,9 @@ class Trainer:
         run_name, model_name = os.path.split(model_ckpt)
         run_path = f"felix-meissen/reconstruction-score-bias/{run_name}"
         loaded = wandb.restore(model_name, run_path=run_path)
-        return torch.load(loaded.name)
+        ckpt = torch.load(loaded.name)
+        os.remove(loaded.name)
+        return ckpt
 
     def step(self, x):
         self.optimizer.zero_grad()
@@ -208,12 +215,15 @@ class Trainer:
                 loss = self.loss_fn(rec, feats)
                 losses.append(loss.item())
                 aps.append(average_precision(label.cpu(), anomaly_map.cpu()))
-                break
 
         # Log results of validation
+        x_log = x[:self.config.num_imgs_log].detach().cpu()
+        anomaly_map_log = anomaly_map[:self.config.num_imgs_log].detach().cpu()
         self.log_progress(
             {"val/latent_rec_loss": np.mean(losses),
              "val/average precision": np.mean(aps)},
+            {"val/inputs": wandb.Image(x_log),
+             "val/rec error": wandb.Image(anomaly_map_log)}
         )
 
         # Set model back to train
@@ -237,7 +247,7 @@ if __name__ == "__main__":
     # Data params
     parser.add_argument("--inp_size", nargs='+', default=[256, 256])
     parser.add_argument("--slice_range", nargs='+', default=(120, 140))
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--val_fraction", type=float, default=0.05)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--load_to_ram", type=bool, default=True)
@@ -263,9 +273,11 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = True
 
     # Init w&b
+    id = os.path.split(config.model_ckpt)[0] if config.model_ckpt is not None else wandb.util.generate_id()
     wandb.init(project="reconstruction-score-bias", entity="felix-meissen",
-               mode="disabled" if config.debug else "online")
-    wandb.config.update(config)
+               mode="disabled" if config.debug else "online",
+               resume="allow", id=id)
+    wandb.config.update(config, allow_val_change=True)
 
     # Get train files
     files = glob("/home/felix/datasets/MOOD/brain/train/*.nii.gz")

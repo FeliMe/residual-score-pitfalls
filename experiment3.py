@@ -85,9 +85,9 @@ if __name__ == "__main__":
 
     ap_results = np.array(ap_results)
     rec_results = np.array(rec_results)
-    np.save(f"./results/experiment3_full_{anomaly}_aps.npy", ap_results)
-    np.save(f"./results/experiment3_full_{anomaly}_rec_errs.npy", rec_results)
+    np.save(f"./results/experiment3/experiment3_full_{anomaly}_aps.npy", ap_results)
+    np.save(f"./results/experiment3/experiment3_full_{anomaly}_rec_errs.npy", rec_results)
     # plot_curve(blurrings, results, ("blur", "ap"),
-    #            f"./results/experiment3_full_{anomaly}.png")
+    #            f"./results/experiment3/experiment3_full_{anomaly}.png")
     # plot_curve(blurrings, results, ("blur", "ap"))
     import IPython; IPython.embed(); exit(1)

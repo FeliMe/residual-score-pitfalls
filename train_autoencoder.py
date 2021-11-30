@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 import wandb
 
 from dataset import TrainDataset, TestDataset
-from models import AutoEncoder
+from models import AutoEncoder, SpatialAutoEncoder, SkipAutoEncoder
 from utils import get_training_timings, average_precision
 
 
@@ -35,12 +35,24 @@ class Trainer:
         self.device = self.config.device
 
         # Init model and optimizer
-        self.model = AutoEncoder(
-            inp_size=self.config.inp_size,
-            intermediate_resolution=self.config.intermediate_resolution,
-            latent_dim=self.config.latent_dim,
-            width=self.config.model_width
-        ).to(self.device)
+        if self.config.model_type == "ae":
+            self.model = AutoEncoder(
+                inp_size=self.config.inp_size,
+                intermediate_resolution=self.config.intermediate_resolution,
+                latent_dim=self.config.latent_dim,
+                width=self.config.model_width
+            ).to(self.device)
+        elif self.config.model_type == "spatial-ae":
+            self.model = SpatialAutoEncoder(
+                inp_size=self.config.inp_size,
+                intermediate_resolution=self.config.intermediate_resolution,
+                width=self.config.model_width
+            ).to(self.device)
+        elif self.config.model_type == "skip-ae":
+            self.model = SkipAutoEncoder().to(self.device)
+        else:
+            raise ValueError(f"Unknown model type: {self.config.model_type}")
+
         self.optimizer = self.init_optimizer(config)
 
         wandb.watch(self.model)
@@ -237,6 +249,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--load_to_ram", type=bool, default=True)
     # Model params
+    parser.add_argument("--model_type", type=str, default="ae",
+                        choices=["ae", "spatial-ae", "skip-ae"])
     parser.add_argument("--model_width", type=int, default=32)
     parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
     parser.add_argument("--latent_dim", type=int, default=256)

@@ -1,3 +1,4 @@
+from argparse import Namespace
 import os
 
 import torch
@@ -247,13 +248,16 @@ def load_vqvae(model_ckpt: str) -> VQVAE:
     ckpt = torch.load(loaded.name)
     os.remove(loaded.name)
 
+    # Extract config
+    config = Namespace(**ckpt['config'])
+
     # Init model
     model = VQVAE()
 
     # Load weights
     model.load_state_dict(ckpt["model_state_dict"])
 
-    return model
+    return model, config
 
 
 if __name__ == "__main__":

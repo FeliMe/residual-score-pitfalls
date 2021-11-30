@@ -68,12 +68,12 @@ if __name__ == "__main__":
 
     ap_results = np.array(ap_results)
     rec_results = np.array(rec_results)
-    np.save("./results/experiment2_full_aps_intensity06.npy", ap_results)
-    np.save("./results/experiment2_full_rec_errs_intensity06.npy", rec_results)
+    np.save("./results/experiment2/experiment2_full_aps_intensity06.npy", ap_results)
+    np.save("./results/experiment2/experiment2_full_rec_errs_intensity06.npy", rec_results)
     # plot_landscape(blurrings, radii, ap_results, ("blur", "radius", "ap"),
-    #                path="./results/experiment2_full_landscape_intensity06.png")
+    #                path="./results/experiment2/experiment2_full_landscape_intensity06.png")
     # plot_heatmap(blurrings, radii, ap_results, ("blur", "radius"),
-    #              path="./results/experiment2_full_heatmap_intensity06.png")
+    #              path="./results/experiment2/experiment2_full_heatmap_intensity06.png")
     # plot_landscape(blurrings, radii, ap_results, ("blur", "radius", "ap"))
     # plot_heatmap(blurrings, radii, ap_results, ("blur", "radius"))
     import IPython; IPython.embed(); exit(1)

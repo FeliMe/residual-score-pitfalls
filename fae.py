@@ -196,17 +196,16 @@ def load_fae(model_ckpt: str) -> FeatureAE:
     # Extract config
     config = Namespace(**ckpt['config'])
 
-    # Init model
-    extractor = Extractor(cnn_layers=config.cnn_layers,
-                          featmap_size=config.featmap_size,
-                          inp_size=config.inp_size)
-    model = FeatureAE(c_in=1, c_z=config.latent_dim)
-
-    # Load weights
-    model.load_state_dict(ckpt["model_state_dict"])
+    # Init feature extractor
+    extractor = Extractor(cnn_layers=['layer1', 'layer2', 'layer3'],
+                          inp_size=config.inp_size[0])
     extractor.load_state_dict(ckpt["extractor_state_dict"])
 
-    return model, extractor
+    # Init model
+    model = FeatureAE(c_in=extractor.feature_mask.sum().item(), c_z=config.latent_dim)
+    model.load_state_dict(ckpt["model_state_dict"])
+
+    return model, extractor, config
 
 
 if __name__ == '__main__':

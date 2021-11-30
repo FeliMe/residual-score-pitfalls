@@ -6,6 +6,7 @@ Experiment 1:
   - Do this for all intensities from 0 to 1 and report the average precision
   - In a second dimension, add gaussian blur to the image (simulates imperfect reconstruction of the Autoencoder)
 """
+import argparse
 import random
 
 import numpy as np
@@ -29,57 +30,65 @@ if __name__ == "__main__":
     random.seed(seed)
     np.random.seed(seed)
 
-    # Load data
-    # img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
-    # volume, _ = load_nii(img_path, primary_axis=2)
-    # img = volume[volume.shape[0] // 2]
-    imgs = load_mood_test_data()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--results_path', type=str, default=None)
+    args = parser.parse_args()
 
-    # Select ball radius
-    # position = (128, 200)
-    radius = 20
-
-    ap_results = []  # Gather ap results here
-    rec_results = []  # Gather reconstruction error results here
     intensities = np.linspace(0., 1., num=100)  # First dimension
     blurrings = np.linspace(0., 5., num=100)  # Second dimension
 
-    # Perform experiment
-    for intensity in tqdm(intensities):
-        ap_result_row = []
-        rec_result_row = []
-        for blur in blurrings:
-            aps = []
-            rec_errs = []
-            # Reset the random seed so for every intensity and blurring we get the same positions
-            random.seed(seed)
-            np.random.seed(seed)
-            for img in imgs:
-                # Blur the normal image (simulates imperfect reconstruction)
-                img_blur = blur_img(img, blur)
-                # Create an anomaly at a random position
-                position = sample_position(img)
-                img_anomal, label = disk_anomaly(img, position, radius, intensity)
-                # Compute the reconstruction error
-                pred = np.abs(img_blur - img_anomal)
-                # Compute the average precision
-                ap = average_precision(label, pred)
-                aps.append(ap)
-                rec_errs.append(pred.mean())
-            ap_result_row.append(np.mean(aps))
-            rec_result_row.append(np.mean(rec_errs))
+    if args.results_path is None:
+        # Load data
+        # img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
+        # volume, _ = load_nii(img_path, primary_axis=2)
+        # img = volume[volume.shape[0] // 2]
+        imgs = load_mood_test_data()
 
-        ap_results.append(ap_result_row)
-        rec_results.append(rec_result_row)
+        # Select ball radius
+        # position = (128, 200)
+        radius = 20
 
-    ap_results = np.array(ap_results)
-    rec_results = np.array(rec_results)
-    np.save("./results/experiment1_full_aps.npy", ap_results)
-    np.save("./results/experiment1_full_rec_errs.npy", ap_results)
-    # plot_landscape(blurrings, intensities, ap_results, ("blur", "intensity", "ap"),
-    #                path="./results/experiment1_full_landscape.png")
-    # plot_heatmap(blurrings, intensities, ap_results, ("blur", "intensity"),
-    #              path="./results/experiment1_full_heatmap.png")
-    # plot_landscape(blurrings, intensities, ap_results, ("blur", "intensity", "ap"))
-    # plot_heatmap(blurrings, intensities, ap_results, ("blur", "intensity"))
+        ap_results = []  # Gather ap results here
+        rec_results = []  # Gather reconstruction error results here
+
+        # Perform experiment
+        for intensity in tqdm(intensities):
+            ap_result_row = []
+            rec_result_row = []
+            for blur in blurrings:
+                aps = []
+                rec_errs = []
+                # Reset the random seed so for every intensity and blurring we get the same positions
+                random.seed(seed)
+                np.random.seed(seed)
+                for img in imgs:
+                    # Blur the normal image (simulates imperfect reconstruction)
+                    img_blur = blur_img(img, blur)
+                    # Create an anomaly at a random position
+                    position = sample_position(img)
+                    img_anomal, label = disk_anomaly(img, position, radius, intensity)
+                    # Compute the reconstruction error
+                    pred = np.abs(img_blur - img_anomal)
+                    # Compute the average precision
+                    ap = average_precision(label, pred)
+                    aps.append(ap)
+                    rec_errs.append(pred.mean())
+                ap_result_row.append(np.mean(aps))
+                rec_result_row.append(np.mean(rec_errs))
+
+            ap_results.append(ap_result_row)
+            rec_results.append(rec_result_row)
+        ap_results = np.array(ap_results)
+        rec_results = np.array(rec_results)
+        np.save("./results/experiment1/experiment1_full_aps.npy", ap_results)
+        np.save("./results/experiment1/experiment1_full_rec_errs.npy", ap_results)
+    else:
+        ap_results = np.load(args.results_path)
+
+    # plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"),
+    #                path="./results/experiment1/experiment1_full_landscape.png")
+    plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"),
+                 path="./results/experiment1/experiment1_full_heatmap.png")
+    # plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"))
+    # plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"))
     import IPython ; IPython.embed() ; exit(1)

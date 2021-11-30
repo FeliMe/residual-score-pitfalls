@@ -321,7 +321,7 @@ if __name__ == "__main__":
     # Model params
     parser.add_argument("--model_width", type=int, default=32)
     parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
-    parser.add_argument("--latent_dim", type=int, default=256)
+    parser.add_argument("--latent_dim", type=int, default=128)
     # Training params
     parser.add_argument("--num_steps", type=int, default=int(1e4))
     parser.add_argument("--log_interval", type=int, default=100)
@@ -329,8 +329,9 @@ if __name__ == "__main__":
     parser.add_argument("--num_imgs_log", type=int, default=12)
     # Real hparams
     parser.add_argument("--lr", type=int, default=1e-4)
-    parser.add_argument("--lr_d", type=int, default=5e-5)
+    parser.add_argument("--lr_d", type=int, default=1e-5)  # 5e-5
     parser.add_argument("--rec_loss_weight", type=int, default=100)
+    parser.add_argument("--rec_loss_weight_min", type=int, default=50)
     config = parser.parse_args()
 
     config.device = config.device if torch.cuda.is_available() else "cpu"

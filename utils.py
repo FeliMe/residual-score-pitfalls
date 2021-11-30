@@ -212,8 +212,10 @@ def plot_heatmap(x, y, z, ax_labels: Tuple[str, str] = None, path: str = None):
     # Set aspect ratio
     ax.set_aspect('equal')
     im = ax.get_images()
-    extent =  im[0].get_extent()
-    ax.set_aspect(abs((extent[1]-extent[0])/(extent[3]-extent[2])))
+    extent = im[0].get_extent()
+    ax.set_aspect(abs((extent[1] - extent[0]) / (extent[3] - extent[2])))
+
+    plt.vlines(0.25, 0, 1, linestyles='dashed')
 
     if path is None:
         plt.show()
