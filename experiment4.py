@@ -13,8 +13,7 @@ import numpy as np
 import torch
 
 from artificial_anomalies import sample_position, disk_anomaly
-from fae import load_fae
-from models import load_autoencoder
+from models import load_autoencoder, load_skip_autoencoder, load_spatial_autoencoder
 from vqvae import load_vqvae
 from utils import (
     average_precision,
@@ -38,7 +37,7 @@ def get_model_reconstruction(model, inp, device):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_type', type=str, choices=['ae', 'vq-vae'])
+    parser.add_argument('--model_type', type=str, choices=['ae', 'vq-vae', 'skip-ae', 'spatial-ae'])
     parser.add_argument('--model_ckpt', type=str, default='1ex8fxcl/best.pt')
     parser.add_argument('--experiment', type=int, default=1, choices=[1, 2])
     parser.add_argument('--device', type=str, default='cuda')
@@ -59,10 +58,11 @@ if __name__ == '__main__':
         device = args.device if torch.cuda.is_available() else 'cpu'
 
         # Load image
-        img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
-        volume, _ = load_nii(img_path, primary_axis=2)
-        img = volume[volume.shape[0] // 2]
-        # imgs = load_mood_test_data()
+        # img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
+        # volume, _ = load_nii(img_path, primary_axis=2)
+        # img = volume[volume.shape[0] // 2]
+        print("Loading image...")
+        imgs = load_mood_test_data()
 
         # Select ball position and radius
         # position = (128, 200)
@@ -79,6 +79,19 @@ if __name__ == '__main__':
             if 'latent_dim' not in config:
                 config.latent_dim = ""
             model = model.to(device)
+        elif args.model_type == 'skip-ae':
+            print('Loading Skip-AE')
+            model, config = load_skip_autoencoder(args.model_ckpt)
+            config.latent_dim = ""
+            model = model.to(device)
+        elif args.model_type == 'spatial-ae':
+            print('Loading Spatial-AE')
+            model, config = load_spatial_autoencoder(args.model_ckpt)
+            if 'latent_channels' not in config:
+                config.latent_dim = 1
+            else:
+                config.latent_dim = config.latent_channels
+            model = model.to(device)
         else:
             raise ValueError(f"Unknown model type: {args.model_type}")
         print(f'latent dim {config.latent_dim}')
@@ -92,15 +105,6 @@ if __name__ == '__main__':
             # Reset the random seed so for every intensity and blurring we get the same positions
             random.seed(seed)
             np.random.seed(seed)
-
-            # TODO: Remove
-            position = sample_position(img)
-            img_anomal, label = disk_anomaly(img, position, radius, intensity)
-            rec = get_model_reconstruction(model, img_anomal, device)
-            rec_err = np.abs(rec - img_anomal)
-            import IPython ; IPython.embed() ; exit(1)
-            # TODO: Remove end
-
             for img in imgs:
                 # Create anomaly
                 position = sample_position(img)

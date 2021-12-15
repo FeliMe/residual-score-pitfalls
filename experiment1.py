@@ -42,6 +42,7 @@ if __name__ == "__main__":
         # img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
         # volume, _ = load_nii(img_path, primary_axis=2)
         # img = volume[volume.shape[0] // 2]
+        print("Loading data...")
         imgs = load_mood_test_data()
 
         # Select ball radius
@@ -81,14 +82,14 @@ if __name__ == "__main__":
         ap_results = np.array(ap_results)
         rec_results = np.array(rec_results)
         np.save("./results/experiment1/experiment1_full_aps.npy", ap_results)
-        np.save("./results/experiment1/experiment1_full_rec_errs.npy", ap_results)
+        np.save("./results/experiment1/experiment1_full_rec_errs.npy", rec_results)
     else:
         ap_results = np.load(args.results_path)
 
     # plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"),
     #                path="./results/experiment1/experiment1_full_landscape.png")
-    plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"),
-                 path="./results/experiment1/experiment1_full_heatmap.png")
+    # plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"),
+    #              path="./results/experiment1/experiment1_full_heatmap.png")
     # plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"))
     # plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"))
     import IPython ; IPython.embed() ; exit(1)

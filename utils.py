@@ -10,6 +10,7 @@ from multiprocessing import Pool
 import nibabel as nib
 import numpy as np
 from scipy.ndimage import gaussian_filter
+from skimage.exposure import equalize_hist
 from skimage.transform import resize
 from sklearn.metrics import average_precision_score
 
@@ -284,6 +285,17 @@ def load_nii_nn(path: str, size: int = None,
         vol = vol[slice_range[0]:slice_range[1]]
 
     return vol
+
+
+def histogram_equalization(img):
+    # Create equalization mask
+    mask = np.where(img > 0, 1, 0)
+    # Equalize
+    img = equalize_hist(img, nbins=256, mask=mask)
+    # Assure that background still is 0
+    img *= mask
+
+    return img
 
 
 def average_precision(target: np.ndarray, pred: np.ndarray) -> float:

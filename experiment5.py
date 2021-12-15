@@ -110,9 +110,9 @@ if __name__ == '__main__':
         ap_results = np.load(args.results_path)
 
     # Save results
-    np.save(f"./results/experiment5_full_{ex}-rec_AE_best_intensity06_aps.npy", ap_results)
-    np.save(f"./results/experiment5_full_{ex}-rec_AE_best_intensity06_rec_errs.npy", rec_results)
+    np.save(f"./results/experiment5/experiment5_full_{ex}-rec_AE_best_intensity06_aps.npy", ap_results)
+    np.save(f"./results/experiment5/experiment5_full_{ex}-rec_AE_best_intensity06_rec_errs.npy", rec_results)
     # plot_curve(radii, ap_results, ("radius", "ap"),
-    #            path=f"./results/experiment5_full_{ex}-rec_{args.model_type}_best_intensity06.png")
+    #            path=f"./results/experiment5/experiment5_full_{ex}-rec_{args.model_type}_best_intensity06.png")
     # plot_curve(radii, ap_results, ("radius", "ap"))
     import IPython; IPython.embed(); exit(1)

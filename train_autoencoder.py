@@ -46,6 +46,7 @@ class Trainer:
             self.model = SpatialAutoEncoder(
                 inp_size=self.config.inp_size,
                 intermediate_resolution=self.config.intermediate_resolution,
+                latent_channels=self.config.latent_channels,
                 width=self.config.model_width
             ).to(self.device)
         elif self.config.model_type == "skip-ae":
@@ -253,7 +254,8 @@ if __name__ == "__main__":
                         choices=["ae", "spatial-ae", "skip-ae"])
     parser.add_argument("--model_width", type=int, default=32)
     parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
-    parser.add_argument("--latent_dim", type=int, default=256)
+    parser.add_argument("--latent_dim", type=int, default=256)  # For AE
+    parser.add_argument("--latent_channels", type=int, default=2)  # For Spatial AE
     # Training params
     parser.add_argument("--num_steps", type=int, default=int(1e4))
     parser.add_argument("--log_interval", type=int, default=100)

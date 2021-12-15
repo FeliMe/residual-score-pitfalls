@@ -4,3 +4,5 @@ scikit-image
 scikit-learn
 scipy
 nibabel>=3.2.1
+torch
+torchvision

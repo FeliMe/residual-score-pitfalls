@@ -13,7 +13,7 @@ import wandb
 
 from dataset import TrainDataset, TestDataset
 from utils import get_training_timings, average_precision
-from models import VQVAE
+from vqvae import VQVAE
 
 
 class Trainer:
@@ -36,14 +36,7 @@ class Trainer:
         self.device = self.config.device
 
         # Init model and optimizer
-        # self.model = VQVAE().to(self.device)
-        self.model = VQVAE(
-            inp_size=self.config.inp_size,
-            intermediate_resolution=self.config.intermediate_resolution,
-            latent_dim=self.config.latent_dim,
-            n_embed=self.config.codebook_size,
-            width=self.config.model_width
-        ).to(self.device)
+        self.model = VQVAE(embed_dim=self.config.latent_channels).to(self.device)
         self.optimizer = self.init_optimizer(config)
 
         wandb.watch(self.model)
@@ -256,7 +249,7 @@ if __name__ == "__main__":
     # Model params
     parser.add_argument("--model_width", type=int, default=32)
     parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
-    parser.add_argument("--latent_dim", type=int, default=64)
+    parser.add_argument("--latent_channels", type=int, default=64)
     parser.add_argument("--codebook_size", type=int, default=512)
     # Training params
     parser.add_argument("--num_steps", type=int, default=int(1e4))

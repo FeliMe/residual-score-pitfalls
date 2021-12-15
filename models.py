@@ -325,7 +325,7 @@ class SpatialAutoEncoder(nn.Module):
 
         # Bottleneck
         self.bottleneck = nn.Conv2d(hidden_dims[-1], latent_channels,
-                                  kernel_size=1, bias=False)
+                                    kernel_size=1, bias=False)
         self.decoder_input = nn.ConvTranspose2d(latent_channels, hidden_dims[-1],
                                                 kernel_size=1, bias=False)
 
@@ -370,11 +370,14 @@ def load_spatial_autoencoder(model_ckpt: str) -> SpatialAutoEncoder:
 
     # Extract config
     config = Namespace(**ckpt['config'])
+    if 'latent_channels' not in config:
+        config.latent_channels = 1
 
     # Init model
     model = SpatialAutoEncoder(
         inp_size=config.inp_size,
         intermediate_resolution=config.intermediate_resolution,
+        latent_channels=config.latent_channels,
         width=config.model_width
     )
 
@@ -443,9 +446,34 @@ class SkipAutoEncoder(nn.Module):
         y5 = self.up5(y4)
 
         y = self.final_conv(y5)
+        y = torch.tanh(y)
 
         return y
 
+
+def load_skip_autoencoder(model_ckpt: str) -> SkipAutoEncoder:
+    """Load a model of the SkipAutoEncoder class from a path of the format
+    <run_name>/<last or best>.pt"""
+
+    # Restore checkpoint
+    run_name, model_name = os.path.split(model_ckpt)
+    run_path = f"felix-meissen/reconstruction-score-bias/{run_name}"
+    loaded = wandb.restore(model_name, run_path=run_path)
+    ckpt = torch.load(loaded.name)
+    os.remove(loaded.name)
+
+    # Extract config
+    config = Namespace(**ckpt['config'])
+
+    # Init model
+    model = SkipAutoEncoder(
+        width=config.model_width
+    )
+
+    # Load weights
+    model.load_state_dict(ckpt["model_state_dict"])
+
+    return model, config
 
 
 """"""""""""""""""""""""""""""""" Pix2Pix """""""""""""""""""""""""""""""""
