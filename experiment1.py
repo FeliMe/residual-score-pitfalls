@@ -16,7 +16,6 @@ from artificial_anomalies import disk_anomaly, sample_position
 from utils import (
     average_precision,
     blur_img,
-    load_nii,
     load_mood_test_data,
     plot_landscape,
     plot_heatmap,
@@ -39,14 +38,10 @@ if __name__ == "__main__":
 
     if args.results_path is None:
         # Load data
-        # img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
-        # volume, _ = load_nii(img_path, primary_axis=2)
-        # img = volume[volume.shape[0] // 2]
         print("Loading data...")
         imgs = load_mood_test_data()
 
-        # Select ball radius
-        # position = (128, 200)
+        # Select ball size
         radius = 20
 
         ap_results = []  # Gather ap results here
@@ -86,10 +81,9 @@ if __name__ == "__main__":
     else:
         ap_results = np.load(args.results_path)
 
-    # plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"),
-    #                path="./results/experiment1/experiment1_full_landscape.png")
-    # plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"),
-    #              path="./results/experiment1/experiment1_full_heatmap.png")
-    # plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"))
-    # plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"))
-    import IPython ; IPython.embed() ; exit(1)
+    plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"),
+                   path="./results/experiment1/experiment1_full_landscape.png")
+    plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"),
+                 path="./results/experiment1/experiment1_full_heatmap.png")
+    plot_landscape(blurrings, intensities, ap_results, ("σ", "intensity", "ap"))
+    plot_heatmap(blurrings, intensities, ap_results, ("σ", "intensity"))

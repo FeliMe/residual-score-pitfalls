@@ -1,79 +1,87 @@
 """
-Experiment 2:
-  - Same as experiment 1, but first dimension is not intensity, but anomaly volume
+Experiment 3:
+  - Get an image (mid-slice of a brain)
+  - Create anomaly with sink-/source-deformation or pixel shuffle
+  - Add increasing blur to the 'reconstructed' (original) image
+  - Subtract the reconstructed image from the anomaly (simulates imperfect reconstruction of the Autoencoder)
 """
-import numpy as np
+import argparse
 import random
 from tqdm import tqdm
 
-from artificial_anomalies import disk_anomaly, sample_position
+import numpy as np
+
+from artificial_anomalies import (
+    sample_position,
+    pixel_shuffle_anomaly,
+    sink_deformation_anomaly,
+    source_deformation_anomaly
+)
 from utils import (
     average_precision,
     blur_img,
-    load_nii,
     load_mood_test_data,
-    plot_landscape,
-    plot_heatmap,
+    plot_curve,
     show,
 )
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--anomaly', type=str,
+                        choices=['pixel_shuffle', 'sink_deformation', 'source_deformation'],
+                        default='pixel_shuffle')
+    args = parser.parse_args()
+    anomaly = args.anomaly
+
     # Place random seeds
     seed = 0
     random.seed(seed)
     np.random.seed(seed)
 
     # Load image
-    # img_path = "/home/felix/datasets/MOOD/brain/test_raw/00529.nii.gz"
-    # volume, _ = load_nii(img_path, primary_axis=2)
-    # img = volume[volume.shape[0] // 2]
     imgs = load_mood_test_data()
 
-    # Select ball position and radius
-    # position = (128, 180)
-    intensity = 0.6
+    # Select ball size
+    radius = 20
 
     ap_results = []  # Gather ap results here
     rec_results = []  # Gather reconstruction error results here
-    radii = np.linspace(1, 51, num=100).astype(np.int)  # Second dimension
-    blurrings = np.linspace(0., 5., num=100)  # Second dimension
+    blurrings = np.linspace(0., 5., num=100)  # First dimension
 
     # Perform experiment
-    for radius in tqdm(radii):
-        ap_result_row = []
-        rec_result_row = []
-        for blur in blurrings:
-            aps = []
-            rec_errs = []
-            # Reset the random seed so for every intensity and blurring we get the same positions
-            random.seed(seed)
-            np.random.seed(seed)
-            for img in imgs:
-                # Blur the normal image (simulates imperfect reconstruction)
-                img_blur = blur_img(img, blur)
-                # Create an anomaly at a random position
-                position = sample_position(img)
-                img_anomal, label = disk_anomaly(img, position, radius, intensity)
-                # Compute the reconstruction error
-                pred = np.abs(img_blur - img_anomal)
-                # Compute the average precision
-                ap = average_precision(label, pred)
-                aps.append(ap)
-                rec_errs.append(pred.mean())
-            ap_result_row.append(np.mean(aps))
-            rec_result_row.append(np.mean(rec_errs))
-        ap_results.append(ap_result_row)
-        rec_results.append(rec_result_row)
+    for blur in tqdm(blurrings):
+        aps = []
+        rec_errs = []
+        # Reset the random seed so for every intensity and blurring we get the same positions
+        random.seed(seed)
+        np.random.seed(seed)
+        for img in imgs:
+            # Blur the normal image (simulates imperfect reconstruction)
+            img_blur = blur_img(img, blur)
+            # Create an anomaly at a random position
+            position = sample_position(img)
+            if anomaly == 'source_deformation':
+                img_anomal, label = source_deformation_anomaly(img, position, radius)
+            elif anomaly == 'sink_deformation':
+                img_anomal, label = sink_deformation_anomaly(img, position, radius)
+            elif anomaly == 'pixel_shuffle':
+                img_anomal, label = pixel_shuffle_anomaly(img, position, radius)
+            else:
+                raise ValueError(f'Unknown anomaly type {anomaly}')
+            # Compute the reconstruction error
+            pred = np.abs(img_blur - img_anomal)
+            # Compute the average precision
+            ap = average_precision(label, pred)
+            aps.append(ap)
+            rec_errs.append(pred.mean())
+        ap_results.append(np.mean(aps))
+        rec_results.append(np.mean(rec_errs))
 
     ap_results = np.array(ap_results)
     rec_results = np.array(rec_results)
-    np.save("./results/experiment2/experiment2_full_aps_intensity06.npy", ap_results)
-    np.save("./results/experiment2/experiment2_full_rec_errs_intensity06.npy", rec_results)
-    # plot_landscape(blurrings, radii, ap_results, ("blur", "radius", "ap"),
-    #                path="./results/experiment2/experiment2_full_landscape_intensity06.png")
-    # plot_heatmap(blurrings, radii, ap_results, ("blur", "radius"),
-    #              path="./results/experiment2/experiment2_full_heatmap_intensity06.png")
-    # plot_landscape(blurrings, radii, ap_results, ("blur", "radius", "ap"))
-    # plot_heatmap(blurrings, radii, ap_results, ("blur", "radius"))
-    import IPython; IPython.embed(); exit(1)
+    np.save(f"./results/experiment3/experiment3_full_{anomaly}_aps.npy", ap_results)
+    np.save(f"./results/experiment3/experiment3_full_{anomaly}_rec_errs.npy", rec_results)
+    plot_curve(blurrings, ap_results, ("blur", "ap"),
+               f"./results/experiment3/experiment3_full_{anomaly}.png")
+    plot_curve(blurrings, ap_results, ("blur", "ap"))

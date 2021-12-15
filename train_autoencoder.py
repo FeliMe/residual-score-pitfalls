@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 import wandb
 
 from dataset import TrainDataset, TestDataset
-from models import AutoEncoder, SpatialAutoEncoder, SkipAutoEncoder
+from models import AutoEncoder, SpatialAutoEncoder
 from utils import get_training_timings, average_precision
 
 
@@ -49,8 +49,6 @@ class Trainer:
                 latent_channels=self.config.latent_channels,
                 width=self.config.model_width
             ).to(self.device)
-        elif self.config.model_type == "skip-ae":
-            self.model = SkipAutoEncoder().to(self.device)
         else:
             raise ValueError(f"Unknown model type: {self.config.model_type}")
 
@@ -251,7 +249,7 @@ if __name__ == "__main__":
     parser.add_argument("--load_to_ram", type=bool, default=True)
     # Model params
     parser.add_argument("--model_type", type=str, default="ae",
-                        choices=["ae", "spatial-ae", "skip-ae"])
+                        choices=["ae", "spatial-ae"])
     parser.add_argument("--model_width", type=int, default=32)
     parser.add_argument("--intermediate_resolution", nargs='+', default=[8, 8])
     parser.add_argument("--latent_dim", type=int, default=256)  # For AE
