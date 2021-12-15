@@ -1,14 +1,39 @@
 import abc
 from functools import partial
 from glob import glob
+import os
 import random
 from time import perf_counter
 from typing import Tuple
+import scipy as sp
 
 from torch.utils.data import Dataset
 
 from artificial_anomalies import disk_anomaly, sample_position
-from utils import load_nii_nn, load_files_to_ram, show
+from utils import MOODROOT, load_nii_nn, load_files_to_ram, show
+
+
+def split_mood_ds(data_dir: str = MOODROOT):
+    if not os.path.exists(data_dir):
+        raise FileNotFoundError(f"{data_dir} does not exist. Please download the"
+                                " dataset from https://www.synapse.org/#!Synapse:syn21343101/files/")
+
+    # Create folders
+    train_folder = os.path.join(data_dir, "train")
+    test_folder = os.path.join(data_dir, "test_raw")
+    os.makedirs(test_folder, exist_ok=True)
+
+    # Get all files
+    files = sorted(glob(os.path.join(train_folder, "*.nii.gz")))
+
+    # Split files
+    train_idx = int(len(files) * 0.6)
+    test_files = files[train_idx:]
+
+    # Move test files to test folder
+    for file in test_files:
+        os.rename(file, os.path.join(test_folder, os.path.basename(file)))
+    print(f'Moved {len(test_files)} files to {test_folder}')
 
 
 class BrainDataset(Dataset):
@@ -86,10 +111,4 @@ class TestDataset(BrainDataset):
 
 
 if __name__ == "__main__":
-    files = glob("/home/felix/datasets/MOOD/brain/train/*.nii.gz")
-    # ds = TrainDataset(files[:50], slice_range=(120, 140), verbose=True)
-    # x = next(iter(ds))
-    # print(x.shape)
-    ds = TestDataset(files[:50], slice_range=(120, 140), verbose=True)
-    normal, anomal, label = next(iter(ds))
-    print(normal.shape, anomal.shape, label.shape)
+    split_mood_ds()

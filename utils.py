@@ -18,7 +18,7 @@ from sklearn.metrics import average_precision_score
 DATAROOT = os.environ.get("DATAROOT")
 if DATAROOT is None:
     raise EnvironmentError("Set the $DATAROOT environment variable to your data directory")
-MOODROOT = os.path.join(DATAROOT, "MOOD")
+MOODROOT = os.path.join(DATAROOT, "MOOD/brain")
 
 
 def load_files_to_ram(files: Sequence, load_fn: Callable,
@@ -207,7 +207,7 @@ def load_mood_test_data() -> np.ndarray:
     Loads the test data for the MOOD challenge.
     :return: The test data as a numpy array.
     """
-    files = glob('/home/felix/datasets/MOOD/brain/test_raw/*.nii.gz')
+    files = glob(os.path.join(MOODROOT, 'test_raw/*.nii.gz'))
     load_fn = partial(load_nii_nn, slice_range=(128, 129))
     data = load_files_to_ram(files, load_fn)
     data = np.stack([s for vol in data for s in vol], axis=0)

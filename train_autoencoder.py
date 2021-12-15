@@ -12,7 +12,7 @@ import wandb
 
 from dataset import TrainDataset, TestDataset
 from models import AutoEncoder, SpatialAutoEncoder
-from utils import get_training_timings, average_precision
+from utils import MOODROOT, get_training_timings, average_precision
 
 
 class Trainer:
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     wandb.config.update(config)
 
     # Get train files
-    files = glob("/home/felix/datasets/MOOD/brain/train/*.nii.gz")
+    files = glob(os.path.join(MOODROOT, "train/*.nii.gz"))
     split_idx = int(len(files) * config.val_fraction)
     train_files = files[split_idx:]
     val_files = files[:split_idx]
