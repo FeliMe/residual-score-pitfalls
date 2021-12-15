@@ -24,15 +24,15 @@ Experiment tracking and checkpointing is done with Weights & Biases ([https://wa
 Before histogram equalization:
 
 <p float="left">
-  <img src="./results/experiment1/experiment1_full_heatmap.png" width="49%" />
-  <img src="./results/histogram_testset.png" width="49%" /> 
+  <img src="./docs/experiment1_full_heatmap.png" width="49%" />
+  <img src="./docs/histogram_testset.png" width="49%" /> 
 </p>
 
 After histogram equalization:
 
 <p float="left">
-  <img src="./results/experiment1/experiment1_histeqal_heatmap.png" width="49%" />
-  <img src="./results/histogram_equalized_testset.png" width="49%" /> 
+  <img src="./docs/experiment1_histeqal_heatmap.png" width="49%" />
+  <img src="./docs/histogram_equalized_testset.png" width="49%" /> 
 </p>
 
 This Figures above show reduced anomaly segmentation performance (measured in average precision) when the intensity of the anomaly is in an area well covered by normal pixel intensities.
