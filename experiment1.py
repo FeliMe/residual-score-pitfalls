@@ -46,7 +46,6 @@ if __name__ == "__main__":
         imgs = load_mood_test_data()
 
         # Select ball radius
-        # position = (128, 200)
         radius = 20
 
         ap_results = []  # Gather ap results here
